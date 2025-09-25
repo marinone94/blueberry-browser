@@ -82,12 +82,14 @@ Currently .gitignored as the repo is public.
 Seamless UX on a browser designed from the ground up for the Intelligence Age.
 - **Proactive browsing**: Reminds, asks, acts proactively based on user behavior, preferences, etc.
 - **Access to email, calendar, etc.**: Access to email, calendar, notes, to improve proactivity and context awareness.
+- **Browser completion**: Predict next action or what to type, like Cursor's tab completion model.
 - **Agentic browsing**: Browser agents fully capable of acting on user's behalf, without human intervention, aligned with user's goals and preferences.
+- **Parallel search**: Work on different tabs in parallel, to speed up the task completion.
+- **Parallel tasks**: Work on different tasks in parallel, to further increase productivity.
 - **Remote browsing**: Dedicated web/mobile app to collect feedback, trigger and monitor jobs on a remote Blueberry instance.
 - **Fully local when possible**: Custom, optimized models for local processing when the hardware supports it.
 - **Federated learning**: Use user data to improve the general models, without compromising privacy.
 - **Vertical agents**: User can create vertical agents for specific tasks with detailed instructions, permissions, and preferences. Automatically selected based on the task at hand, or manually picked by the user.
-
 ---
 
 *Building the future of intelligent browsing, one feature at a time.*
