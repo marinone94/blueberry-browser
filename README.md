@@ -1,85 +1,93 @@
 # Blueberry Browser
 
-> **⚠️ Disclaimer:** I'm not proud of this codebase! It was built in 3 hours. If you have some time left over in the challenge, feel free to refactor and clean things up!
-
-https://github.com/user-attachments/assets/bbf939e2-d87c-4c77-ab7d-828259f6d28d
-
----
+> An AI-powered Electron browser that learns from user behavior to enhance productivity and automate repetitive tasks.
 
 ## Overview
 
-You are the **CTO of Blueberry Browser**, a Strawberry competitor. Your mission is to add a feature to Blueberry that makes it superior & more promising than Strawberry.
+Blueberry Browser is a next-generation browsing platform built with Electron, React, and TypeScript. It combines traditional web browsing with intelligent AI capabilities that understand user patterns, predict needs, and automate tasks.
 
-But your time is limited—Strawberry is about to raise a two billion dollar Series A round from X-Separator, B17Å and Sequoiadendron giganteum Capital.
+**Key Innovation**: Unlike conventional browsers, Blueberry actively learns from user behavior to provide contextual assistance, predictive text completion, and automated task execution.
 
-## 🎯 Task
+### Core Features
 
-Your job is to **clone this repo** and add a unique feature. Some ideas are listed below.
+- **AI Chat Sidebar**: Integrated OpenAI/Anthropic powered assistant for browsing support
+- **Smart Tab Management**: Intelligent organization and navigation
+- **Workflow Recognition**: Detect and automate recurring browsing patterns
+- **Page Content Extraction**: AI-powered content analysis and summarization
+- **Script Generation**: Automated form filling and data extraction capabilities
+- **Predictive Completion**: Context-aware suggestions for user actions
 
-It doesn't need to work 100% reliably, or even be completely done. It just has to:
+## Quick Start
 
-- Show that you are creative and can iterate on novel ideas fast
-- Demonstrate good system thinking and code practices  
-- Prove you are a capable full stack and/or LLM dev
+### Prerequisites
+- Node.js 18+
+- pnpm (required package manager)
+- OpenAI API key
 
-Once you're done, we'll book a call where you'll get to present your work!
+### Installation & Setup
 
-If it's cracked, we might just have to acquire Blueberry Browser to stay alive 👀👀👀
+```bash
+# Install dependencies
+pnpm install
 
-### ⏰ Time
+# Create environment file
+echo "OPENAI_API_KEY=your-api-key-here" > .env
 
-**1-2 weeks** is ideal for this challenge. This allows you to work over weekends and during evenings in your own time.
+# Start development server
+pnpm dev
+```
 
-### 📋 Rules
 
-You are allowed to vibe code, but make sure you understand everything so we can ask technical questions.
+## Development
+For detailed development guidelines, architecture documentation, and best practices, see **[AGENTS.md](./AGENTS.md)**.
 
-## 💡 Feature Ideas
+### Available Commands
+```bash
+pnpm dev              # Start all processes with hot reload
+pnpm typecheck        # Full TypeScript validation
+pnpm lint             # Code quality checks
+pnpm format           # Auto-format code
+pnpm build            # Production build
+```
 
-### **Browsing History Compiler**
-Track the things that the user is doing inside the browser and figure out from a series of browser states what the user is doing, and perhaps how valuable, repetitive tasks can be re-run by an AI agent.
+### Architecture
+- **Main Process**: Electron backend with window/tab management
+- **Preload Scripts**: Secure IPC communication layer
+- **Renderer Processes**: 
+  - `topbar`: Address bar, navigation, tab controls
+  - `sidebar`: AI chat interface and tools
+  - `common`: Shared UI components and utilities
 
-*Tab state series → Prompt for web agent how to reproduce the work*
 
-### **Coding Agent**
-Sidebar coding agent that can create a script that can run on the open tabs.
+## Feature Development
+For comprehensive development guidance, see **[AGENTS.md](./AGENTS.md#development-commands)**.
 
-Maybe useful for filling forms or changing the page's style so it can extract data but present it in a nicer format.
+### Current Capabilities
+✅ **Basic Browser Foundation**
+- Multi-tab navigation and management
+- Address bar with URL handling
+- Secure IPC communication between processes
+- AI chat integration with OpenAI
 
-### **Tab Completion Model**
-Predict next action or what to type, like Cursor's tab completion model.
+✅ **AI Integration**
+- Chat interface with streaming responses
+- Context-aware conversations
+- Error handling for API failures
 
-### **Your Own Idea**
-Feel free to implement your own idea!
+### 🚧 Development Roadmap
+During the challenge, the development roadmap is documented in **[ROADMAP.md](./docs/ROADMAP.md)**.
+Currently .gitignored as the repo is public.
 
-> Wanted to try transformers.js for a while? This is your chance! 
-
-> Have an old cool web agent framework you built? Let's see if you can merge it into the browser!
-
-> Think you can add a completely new innovation to the browser concept with some insane, over-engineered React? Lfg!
-
-Make sure you can realistically showcase a simple version of it in the timeframe. You can double check with us first if uncertain! :)
-
-## 💬 Tips
-
-Feel free to write to us with questions or send updates during the process—it's a good way to get a feel for working together.
-
-It can also be a good way for us to give feedback if things are heading in the right or wrong direction.
+### 🔮 Future Vision
+Seamless UX on a browser designed from the ground up for the Intelligence Age.
+- **Proactive browsing**: Reminds, asks, acts proactively based on user behavior, preferences, etc.
+- **Access to email, calendar, etc.**: Access to email, calendar, notes, to improve proactivity and context awareness.
+- **Agentic browsing**: Browser agents fully capable of acting on user's behalf, without human intervention, aligned with user's goals and preferences.
+- **Remote browsing**: Dedicated web/mobile app to collect feedback, trigger and monitor jobs on a remote Blueberry instance.
+- **Fully local when possible**: Custom, optimized models for local processing when the hardware supports it.
+- **Federated learning**: Use user data to improve the general models, without compromising privacy.
+- **Vertical agents**: User can create vertical agents for specific tasks with detailed instructions, permissions, and preferences. Automatically selected based on the task at hand, or manually picked by the user.
 
 ---
 
-## 🚀 Project Setup
-
-### Install
-```bash
-$ pnpm install
-```
-
-### Development
-```bash
-$ pnpm dev
-```
-
-**Add an OpenAI API key to `.env`** in the root folder.
-
-Strawberry will reimburse LLM costs, so go crazy! *(Please not more than a few hundred dollars though!)*
+*Building the future of intelligent browsing, one feature at a time.*

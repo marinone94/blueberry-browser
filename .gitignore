@@ -131,3 +131,6 @@ logs/
 *.pem
 *.key
 *.cert
+
+# Roadmap
+docs/ROADMAP.md
