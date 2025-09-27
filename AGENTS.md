@@ -57,6 +57,10 @@ The underlying AI models used to generate code have the tendency of proposing or
 This is because docs are included in the context by the IDE agent, and because they are trained to do more rather than less.
 **ENSURE to strictly adhere to the user's latest instructions, and not to propose or implement more than asked.**
 
+### Check the codebase
+Always check the codebase and the docs under `docs/repo` before designing a new feature or making changes to the existing code.
+**ENSURE to check the codebase and the docs before designing a new feature to keep the codebase consistent and as simple as possible.**
+
 ### Ask for clarification
 USer prompts can be ambiguous, or incomplete.
 **ENSURE to ask for clarification if you are not sure about the user's instructions.**
