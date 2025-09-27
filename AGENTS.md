@@ -53,7 +53,9 @@ pnpm build:linux       # Linux production
 ## Key Development Principles
 
 ### Strictly adhere to the instructions
-The underlying AI models used to generate code have the tendency of proposing or implementing more than asked. This is because docs are included in the context by the IDE agent. ENSURE to strictly adhere to the user's latest instructions, and not to propose or implement more than asked.
+The underlying AI models used to generate code have the tendency of proposing or implementing more than asked.
+This is because docs are included in the context by the IDE agent, and because they are trained to do more rather than less.
+**ENSURE to strictly adhere to the user's latest instructions, and not to propose or implement more than asked.**
 
 ### Electron Best Practices
 - **Security First**: Use preload scripts, never disable context isolation
