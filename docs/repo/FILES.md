@@ -6,7 +6,7 @@ This document provides a comprehensive analysis of all source files in the Blueb
 
 ## Application Core & Lifecycle
 
-### src/main/index.ts
+### 📄 src/main/index.ts
 **Purpose**: Main application entry point and lifecycle management
 
 **Key Functions**:
@@ -23,7 +23,7 @@ This document provides a comprehensive analysis of all source files in the Blueb
 - Handles macOS dock icon re-activation
 - Performs cleanup on window closure (EventManager cleanup, reference nulling)
 
-### src/main/Menu.ts
+### 📄 src/main/Menu.ts
 **Purpose**: Native application menu and keyboard shortcuts
 
 **Key Classes**:
@@ -47,7 +47,7 @@ This document provides a comprehensive analysis of all source files in the Blueb
 
 ## Window Management & Layout
 
-### src/main/Window.ts
+### 📄 src/main/Window.ts
 **Purpose**: Main window management with multiple WebContentsViews
 
 **Key Classes**:
@@ -74,7 +74,7 @@ This document provides a comprehensive analysis of all source files in the Blueb
 - Proper cleanup of WebContentsView references on window close
 - External link handling via shell.openExternal
 
-### src/main/Tab.ts
+### 📄 src/main/Tab.ts
 **Purpose**: Individual browser tab with web content
 
 **Key Classes**:
@@ -102,7 +102,7 @@ This document provides a comprehensive analysis of all source files in the Blueb
 - Automatic title and URL tracking via navigation events
 - `page-title-updated`, `did-navigate`, `did-navigate-in-page`
 
-### src/main/TopBar.ts
+### 📄 src/main/TopBar.ts
 **Purpose**: Browser navigation UI container
 
 **Key Classes**:
@@ -121,7 +121,7 @@ This document provides a comprehensive analysis of all source files in the Blueb
 - Dev mode: Loads from Vite dev server (`/topbar/`)
 - Production: Loads from `../renderer/topbar.html`
 
-### src/main/SideBar.ts
+### 📄 src/main/SideBar.ts
 **Purpose**: AI chat interface container
 
 **Key Classes**:
@@ -145,7 +145,7 @@ This document provides a comprehensive analysis of all source files in the Blueb
 
 ## Inter-Process Communication
 
-### src/main/EventManager.ts
+### 📄 src/main/EventManager.ts
 **Purpose**: Central IPC hub managing all main↔renderer communication
 
 **Key Classes**:
@@ -177,7 +177,7 @@ Dark Mode: dark-mode-changed (→ broadcast to all processes)
 - Console error logging with context
 - Null checks for active tab operations
 
-### src/preload/topbar.ts
+### 📄 src/preload/topbar.ts
 **Purpose**: Secure IPC bridge for browser navigation interface
 
 **Exposed APIs**:
@@ -192,7 +192,7 @@ Dark Mode: dark-mode-changed (→ broadcast to all processes)
 
 **Type Safety**: Companion `.d.ts` file provides complete TypeScript definitions
 
-### src/preload/sidebar.ts
+### 📄 src/preload/sidebar.ts
 **Purpose**: Secure IPC bridge for AI chat interface
 
 **Exposed APIs**:
@@ -209,7 +209,7 @@ Dark Mode: dark-mode-changed (→ broadcast to all processes)
 - Proper listener setup/cleanup for streaming chat responses
 - Message update notifications from main process
 
-### src/preload/topbar.d.ts & sidebar.d.ts
+### 📄 src/preload/topbar.d.ts & sidebar.d.ts
 **Purpose**: TypeScript definitions for preload script APIs
 
 **Interfaces Defined**:
@@ -226,7 +226,7 @@ Dark Mode: dark-mode-changed (→ broadcast to all processes)
 
 ## AI Integration
 
-### src/main/LLMClient.ts
+### 📄 src/main/LLMClient.ts
 **Purpose**: AI language model integration with context awareness
 
 **Key Classes**:
@@ -243,8 +243,8 @@ Dark Mode: dark-mode-changed (→ broadcast to all processes)
 - **Used by**: SideBar class, EventManager (via chat IPC)
 
 **AI Provider Support**:
-- OpenAI (default): GPT-4o-mini model
-- Anthropic: Claude-3.5-Sonnet model
+- OpenAI (default): GPT-5-mini model
+- Anthropic: Claude 4 Sonnet model
 - Environment variable configuration (`LLM_PROVIDER`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`)
 
 **Context Integration**:
@@ -272,7 +272,7 @@ Dark Mode: dark-mode-changed (→ broadcast to all processes)
 
 ### TopBar Application
 
-#### src/renderer/topbar/src/main.tsx
+#### 📄 src/renderer/topbar/src/main.tsx
 **Purpose**: TopBar React application entry point
 
 **Key Functions**:
@@ -283,7 +283,7 @@ Dark Mode: dark-mode-changed (→ broadcast to all processes)
 - **Uses**: TopBarApp, index.css
 - **Used by**: Electron TopBar WebContentsView
 
-#### src/renderer/topbar/src/TopBarApp.tsx
+#### 📄 src/renderer/topbar/src/TopBarApp.tsx
 **Purpose**: Main TopBar component layout
 
 **Key Components**:
@@ -297,7 +297,7 @@ Dark Mode: dark-mode-changed (→ broadcast to all processes)
 
 **Styling**: Uses app-region-drag for window dragging with app-region-no-drag for interactive elements
 
-#### src/renderer/topbar/src/contexts/BrowserContext.tsx
+#### 📄 src/renderer/topbar/src/contexts/BrowserContext.tsx
 **Purpose**: Browser state management and IPC abstraction
 
 **Key Context APIs**:
@@ -315,7 +315,7 @@ Dark Mode: dark-mode-changed (→ broadcast to all processes)
 - **Uses**: topBarAPI from preload script
 - **Used by**: All TopBar components
 
-#### src/renderer/topbar/src/components/TabBar.tsx
+#### 📄 src/renderer/topbar/src/components/TabBar.tsx
 **Purpose**: Browser tab interface
 
 **Key Components**:
@@ -333,7 +333,7 @@ Dark Mode: dark-mode-changed (→ broadcast to all processes)
 - **Uses**: BrowserContext, Favicon, TabBarButton components
 - **Used by**: TopBarApp
 
-#### src/renderer/topbar/src/components/AddressBar.tsx
+#### 📄 src/renderer/topbar/src/components/AddressBar.tsx
 **Purpose**: URL input and navigation controls
 
 **Key Features**:
@@ -352,7 +352,7 @@ Dark Mode: dark-mode-changed (→ broadcast to all processes)
 - **Uses**: BrowserContext, ToolBarButton, Favicon, DarkModeToggle
 - **Used by**: TopBarApp
 
-#### src/renderer/topbar/src/components/TabBarButton.tsx
+#### 📄 src/renderer/topbar/src/components/TabBarButton.tsx
 **Purpose**: Tab bar action buttons (add tab)
 
 **Features**:
@@ -360,7 +360,7 @@ Dark Mode: dark-mode-changed (→ broadcast to all processes)
 - app-region-no-drag for clickability
 - Consistent styling with toolbar buttons
 
-#### src/renderer/topbar/src/components/ToolBarButton.tsx
+#### 📄 src/renderer/topbar/src/components/ToolBarButton.tsx
 **Purpose**: Toolbar action buttons (navigation, reload, etc.)
 
 **Features**:
@@ -369,7 +369,7 @@ Dark Mode: dark-mode-changed (→ broadcast to all processes)
 - Icon or children content
 - Disabled state styling
 
-#### src/renderer/topbar/src/components/Favicon.tsx
+#### 📄 src/renderer/topbar/src/components/Favicon.tsx
 **Purpose**: Website favicon display with fallback
 
 **Features**:
@@ -377,7 +377,7 @@ Dark Mode: dark-mode-changed (→ broadcast to all processes)
 - Globe icon fallback
 - 16x16px consistent sizing
 
-#### src/renderer/topbar/src/components/DarkModeToggle.tsx
+#### 📄 src/renderer/topbar/src/components/DarkModeToggle.tsx
 **Purpose**: Dark/light mode switching
 
 **Features**:
@@ -387,12 +387,12 @@ Dark Mode: dark-mode-changed (→ broadcast to all processes)
 
 ### Sidebar Application
 
-#### src/renderer/sidebar/src/main.tsx
+#### 📄 src/renderer/sidebar/src/main.tsx
 **Purpose**: Sidebar React application entry point
 
 **Similar to TopBar main.tsx**, mounts SidebarApp with React StrictMode
 
-#### src/renderer/sidebar/src/SidebarApp.tsx
+#### 📄 src/renderer/sidebar/src/SidebarApp.tsx
 **Purpose**: Main sidebar layout with chat interface
 
 **Key Features**:
@@ -405,7 +405,7 @@ Dark Mode: dark-mode-changed (→ broadcast to all processes)
 - **Uses**: ChatContext, Chat component, useDarkMode hook
 - **Used by**: main.tsx
 
-#### src/renderer/sidebar/src/contexts/ChatContext.tsx
+#### 📄 src/renderer/sidebar/src/contexts/ChatContext.tsx
 **Purpose**: AI chat state management and IPC integration
 
 **Key Context APIs**:
@@ -422,7 +422,7 @@ Dark Mode: dark-mode-changed (→ broadcast to all processes)
 - **Uses**: sidebarAPI from preload script
 - **Used by**: Chat component
 
-#### src/renderer/sidebar/src/components/Chat.tsx
+#### 📄 src/renderer/sidebar/src/components/Chat.tsx
 **Purpose**: Complete chat interface with AI conversation
 
 **Key Components**:
@@ -452,7 +452,7 @@ Dark Mode: dark-mode-changed (→ broadcast to all processes)
 
 ## Shared Components
 
-### src/renderer/common/components/Button.tsx
+### 📄 src/renderer/common/components/Button.tsx
 **Purpose**: Reusable button component with design system variants
 
 **Features**:
@@ -469,7 +469,7 @@ Dark Mode: dark-mode-changed (→ broadcast to all processes)
 - Dark mode support built-in
 - Accessibility features (focus rings, disabled states)
 
-### src/renderer/common/hooks/useDarkMode.ts
+### 📄 src/renderer/common/hooks/useDarkMode.ts
 **Purpose**: Dark mode state management with cross-process synchronization
 
 **Features**:
@@ -487,7 +487,7 @@ Dark Mode: dark-mode-changed (→ broadcast to all processes)
 - **Uses**: Electron IPC via window.electron
 - **Used by**: TopBar DarkModeToggle, SidebarApp
 
-### src/renderer/common/lib/utils.ts
+### 📄 src/renderer/common/lib/utils.ts
 **Purpose**: Utility functions for styling and class management
 
 **Key Functions**:
