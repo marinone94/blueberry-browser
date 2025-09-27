@@ -1,11 +1,5 @@
 import { ElectronAPI } from "@electron-toolkit/preload";
-
-interface TabInfo {
-  id: string;
-  title: string;
-  url: string;
-  isActive: boolean;
-}
+import type { TabInfo } from "./types";
 
 interface TopBarAPI {
   // Tab management
