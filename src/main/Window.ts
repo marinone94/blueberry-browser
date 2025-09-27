@@ -33,7 +33,8 @@ export class Window {
     this._sideBar.client.setWindow(this);
 
     // Create the first tab
-    this.createTab();
+    const firstTab = this.createTab();
+    this.switchActiveTab(firstTab.id);
 
     // Set up window resize handler
     this._baseWindow.on("resize", () => {
@@ -109,13 +110,8 @@ export class Window {
     // Store the tab
     this.tabsMap.set(tabId, tab);
 
-    // If this is the first tab, make it active
-    if (this.tabsMap.size === 1) {
-      this.switchActiveTab(tabId);
-    } else {
-      // Hide the tab initially if it's not the first one
-      tab.hide();
-    }
+    // Hide the tab initially - it will be shown when activated via EventManager
+    tab.hide();
 
     return tab;
   }
