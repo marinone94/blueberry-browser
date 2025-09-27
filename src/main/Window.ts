@@ -7,6 +7,7 @@ export class Window {
   private _baseWindow: BaseWindow;
   private tabsMap: Map<string, Tab> = new Map();
   private activeTabId: string | null = null;
+  private prevActiveTabId: string | null = null;
   private tabCounter: number = 0;
   private _topBar: TopBar;
   private _sideBar: SideBar;
@@ -134,12 +135,24 @@ export class Window {
     // Remove from our tabs map
     this.tabsMap.delete(tabId);
 
+    // Clean up prevActiveTabId if it was the closed tab
+    if (this.prevActiveTabId === tabId) {
+      this.prevActiveTabId = null;
+    }
+
     // If this was the active tab, switch to another tab
     if (this.activeTabId === tabId) {
       this.activeTabId = null;
-      const remainingTabs = Array.from(this.tabsMap.keys());
-      if (remainingTabs.length > 0) {
-        this.switchActiveTab(remainingTabs[0]);
+
+      // Switch to the previous active tab if it still exists
+      if (this.prevActiveTabId && this.tabsMap.has(this.prevActiveTabId)) {
+        this.switchActiveTab(this.prevActiveTabId);
+      // If no valid previous active tab, switch to the last one
+      } else {
+        const remainingTabs = Array.from(this.tabsMap.keys());
+        if (remainingTabs.length > 0) {
+          this.switchActiveTab(remainingTabs[remainingTabs.length - 1]);
+        }
       }
     }
 
@@ -162,6 +175,7 @@ export class Window {
       const currentTab = this.tabsMap.get(this.activeTabId);
       if (currentTab) {
         currentTab.hide();
+        this.prevActiveTabId = this.activeTabId;
       }
     }
 
