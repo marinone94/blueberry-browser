@@ -57,6 +57,55 @@ The underlying AI models used to generate code have the tendency of proposing or
 This is because docs are included in the context by the IDE agent, and because they are trained to do more rather than less.
 **ENSURE to strictly adhere to the user's latest instructions, and not to propose or implement more than asked.**
 
+### Ask for clarification
+USer prompts can be ambiguous, or incomplete.
+**ENSURE to ask for clarification if you are not sure about the user's instructions.**
+
+### Test thoroughly
+**ENSURE to test thoroughly before submitting the code.**
+
+### Document your code
+**ENSURE to document your code thoroughly, both in code and in relevant files under `docs/` directory, `README.md`, and `AGENTS.md`.**
+
+### Use comments
+**ENSURE to use comments to explain the code.**
+
+### Use logging
+**ENSURE to use logging to debug the code.**
+
+### Use type checking
+**ENSURE to use type checking to catch errors.**
+
+### Use formatting
+**ENSURE to use formatting to make the code readable.**
+
+### Use linting
+**ENSURE to use linting to catch errors.**
+
+### Extending the Browser
+- **New Features**: Follow IPC patterns established in EventManager
+- **UI Components**: Use existing patterns from common components
+- **AI Capabilities**: Extend LLMClient with new providers or features
+- **Performance**: Monitor memory usage across tab processes
+
+### Code Organization
+- **Keep main process lightweight**: Move complex logic to renderer when possible
+- **Maintain type safety**: Update .d.ts files when adding new IPC channels
+- **Follow React patterns**: Use hooks and context for state management
+- **Security first**: All new IPC channels should use secure invoke/handle pattern
+
+### Keeping Docs Updated
+- **Architecture changes**: Update ARCHITECTURE.md process flows
+- **New files**: Add entries to FILES.md with proper dependency analysis
+- **New features**: Document complete flows in FEATURES.md
+- **API changes**: Update preload script type definitions
+
+### Contributing Documentation
+- **Be comprehensive**: Include all functions involved in flows
+- **Show interactions**: Explain how components communicate
+- **Include examples**: Provide code snippets for patterns
+- **Consider debugging**: Help future developers troubleshoot issues
+
 ### Electron Best Practices
 - **Security First**: Use preload scripts, never disable context isolation
 - **Process Isolation**: Keep main process lightweight, business logic in renderer
@@ -134,12 +183,37 @@ ANTHROPIC_API_KEY=your-anthropic-key  # optional
 - Test memory leaks with multiple tabs/windows
 - Validate all IPC message payloads
 
-## Debugging Tips
+
+## 🐛 Debugging Guide
+
+### Debugging Tips & Common Issues
+
+**General Debugging**:
 - Use `console.log` strategically across processes
 - Monitor `chrome://inspect` for renderer processes
 - Check main process logs in terminal
 - Use Electron DevTools extensions
 - Test in packaged app, not just development
+
+**IPC Communication Failures**:
+- Check preload script registration in WebContentsView
+- Verify IPC channel names match between preload and main
+- Ensure proper error handling in main process handlers
+
+**React State Synchronization**:
+- Use React DevTools to inspect context state
+- Check IPC event listeners are properly cleaned up
+- Verify useEffect dependencies are correct
+
+**Electron Build Issues**:
+- Run `pnpm typecheck` to catch TypeScript errors
+- Check that all imports use correct paths
+- Verify preload scripts are being built to `/out/preload/`
+
+**AI Integration Problems**:
+- Check API keys in `.env` file
+- Verify network connectivity for streaming responses
+- Check console for LLMClient initialization messages
 
 ---
 
