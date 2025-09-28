@@ -6,17 +6,27 @@ import { UserAccountManager, type TabSwitchOptions } from "./UserAccountManager"
 import { UserDataManager, type UserTabState } from "./UserDataManager";
 
 export class Window {
-  private _baseWindow: BaseWindow;
+  private _baseWindow!: BaseWindow;
   private tabsMap: Map<string, Tab> = new Map();
   private activeTabId: string | null = null;
   private prevActiveTabId: string | null = null;
   private tabCounter: number = 0;
-  private _topBar: TopBar;
-  private _sideBar: SideBar;
-  private _userDataManager: UserDataManager;
-  private _userAccountManager: UserAccountManager;
+  private _topBar!: TopBar;
+  private _sideBar!: SideBar;
+  private _userDataManager!: UserDataManager;
+  private _userAccountManager!: UserAccountManager;
 
-  constructor() {
+  private constructor() {
+    // Private constructor - use Window.create() instead
+  }
+
+  static async create(): Promise<Window> {
+    const window = new Window();
+    await window.initialize();
+    return window;
+  }
+
+  private async initialize(): Promise<void> {
     // Create the browser window.
     this._baseWindow = new BaseWindow({
       width: 1000,
@@ -33,6 +43,9 @@ export class Window {
     // Initialize user management
     this._userDataManager = new UserDataManager();
     this._userAccountManager = new UserAccountManager(this._userDataManager);
+    
+    // Wait for user accounts to initialize before proceeding
+    await this.waitForUserAccountsInitialization();
 
     this._topBar = new TopBar(this._baseWindow);
     this._sideBar = new SideBar(this._baseWindow);
@@ -126,7 +139,7 @@ export class Window {
     return tab;
   }
 
-  closeTab(tabId: string): boolean {
+  closeTab(tabId: string, preventWindowClose: boolean = false): boolean {
     const tab = this.tabsMap.get(tabId);
     if (!tab) {
       return false;
@@ -162,8 +175,8 @@ export class Window {
       }
     }
 
-    // If no tabs left, close the window
-    if (this.tabsMap.size === 0) {
+    // If no tabs left, close the window (unless prevented)
+    if (this.tabsMap.size === 0 && !preventWindowClose) {
       this._baseWindow.close();
     }
 
@@ -276,6 +289,7 @@ export class Window {
     return this._sideBar;
   }
 
+
   // Getter for topBar to access from main process
   get topBar(): TopBar {
     return this._topBar;
@@ -298,6 +312,28 @@ export class Window {
 
   get userDataManager(): UserDataManager {
     return this._userDataManager;
+  }
+
+  /**
+   * Wait for user accounts to be initialized
+   */
+  private async waitForUserAccountsInitialization(): Promise<void> {
+    // Wait for user accounts to be loaded
+    let attempts = 0;
+    const maxAttempts = 50; // 5 seconds max
+    
+    while (attempts < maxAttempts) {
+      const users = this._userAccountManager.getAllUsers();
+      if (users.length > 0) {
+        console.log(`User accounts initialized after ${attempts * 100}ms`);
+        return;
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 100));
+      attempts++;
+    }
+    
+    console.warn('User accounts initialization timeout - proceeding anyway');
   }
 
   /**
@@ -336,7 +372,7 @@ export class Window {
         await this.reloadAllTabsWithNewSession();
       } else {
         // Close current tabs and load user's saved tabs
-        await this.closeAllTabs();
+        await this.closeAllTabs(true); // Prevent window close during user switch
         
         if (switchResult.tabsToLoad && switchResult.tabsToLoad.length > 0) {
           // Load user's saved tabs
@@ -369,7 +405,7 @@ export class Window {
     const activeTabState = tabStates.find(tab => tab.isActive);
     
     // Close all existing tabs
-    await this.closeAllTabs();
+    await this.closeAllTabs(true); // Prevent window close during session reload
     
     // Recreate tabs with new session partition
     for (const tabState of tabStates) {
@@ -388,10 +424,10 @@ export class Window {
   /**
    * Close all tabs
    */
-  async closeAllTabs(): Promise<void> {
+  async closeAllTabs(preventWindowClose: boolean = false): Promise<void> {
     const tabIds = Array.from(this.tabsMap.keys());
     for (const tabId of tabIds) {
-      this.closeTab(tabId);
+      this.closeTab(tabId, preventWindowClose);
     }
   }
 
@@ -402,6 +438,7 @@ export class Window {
     const currentTabs = this.getCurrentTabsState();
     await this._userAccountManager.saveCurrentUserTabs(currentTabs);
   }
+
 
   /**
    * Create tab from saved state

@@ -46,7 +46,7 @@ const topBarAPI = {
   getUserStats: () => electronAPI.ipcRenderer.invoke("get-user-stats"),
   resetGuestUser: () => electronAPI.ipcRenderer.invoke("reset-guest-user"),
   saveCurrentUserTabs: () => electronAPI.ipcRenderer.invoke("save-current-user-tabs"),
-
+  
   // User change events
   onUserChanged: (callback: (userData: any) => void) => {
     electronAPI.ipcRenderer.on("user-changed", (_, userData) => callback(userData));

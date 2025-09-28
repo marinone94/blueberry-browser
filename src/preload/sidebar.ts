@@ -38,9 +38,22 @@ const sidebarAPI = {
   // Tab information
   getActiveTabInfo: () => electronAPI.ipcRenderer.invoke("get-active-tab-info"),
 
-  // User Account Management (subset of what's available in topbar)
+  // User Account Management (full access needed for modals)
   getCurrentUser: () => electronAPI.ipcRenderer.invoke("get-current-user"),
   getUsers: () => electronAPI.ipcRenderer.invoke("get-users"),
+  createUser: (userData: {name: string, email?: string, birthday?: string}) => 
+    electronAPI.ipcRenderer.invoke("create-user", userData),
+  switchUser: (userId: string, options?: {keepCurrentTabs: boolean}) => 
+    electronAPI.ipcRenderer.invoke("switch-user", userId, options),
+  updateUser: (userId: string, updates: {name?: string, email?: string, birthday?: string}) => 
+    electronAPI.ipcRenderer.invoke("update-user", userId, updates),
+  deleteUser: (userId: string) => electronAPI.ipcRenderer.invoke("delete-user", userId),
+  getUserStats: () => electronAPI.ipcRenderer.invoke("get-user-stats"),
+  
+  // Listen for messages from topbar
+  onTopbarMessage: (callback: (type: string, data: any) => void) => {
+    electronAPI.ipcRenderer.on("topbar-message", (_, type, data) => callback(type, data));
+  },
 
   // User change events
   onUserChanged: (callback: (userData: any) => void) => {

@@ -3,6 +3,7 @@ import { Plus, X } from 'lucide-react'
 import { useBrowser } from '../contexts/BrowserContext'
 import { Favicon } from '../components/Favicon'
 import { TabBarButton } from '../components/TabBarButton'
+import { UserIndicator } from './UserIndicator'
 import { cn } from '@common/lib/utils'
 
 interface TabItemProps {
@@ -111,11 +112,16 @@ export const TabBar: React.FC = () => {
             </div>
 
             {/* Add Tab Button */}
-            <div className="pl-1 pr-2">
+            <div className="pl-1 pr-1">
                 <TabBarButton
                     Icon={Plus}
                     onClick={handleCreateTab}
                 />
+            </div>
+
+            {/* User Indicator */}
+            <div className="pr-2">
+                <UserIndicator />
             </div>
         </div>
     )

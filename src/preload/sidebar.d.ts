@@ -44,9 +44,17 @@ interface SidebarAPI {
   // Tab information
   getActiveTabInfo: () => Promise<TabInfo | null>;
 
-  // User Account Management (subset)
+  // User Account Management (full access needed for modals)
   getCurrentUser: () => Promise<UserAccount | null>;
   getUsers: () => Promise<UserAccount[]>;
+  createUser: (userData: {name: string, email?: string, birthday?: string}) => Promise<UserAccount>;
+  switchUser: (userId: string, options?: {keepCurrentTabs: boolean}) => Promise<void>;
+  updateUser: (userId: string, updates: {name?: string, email?: string, birthday?: string}) => Promise<UserAccount>;
+  deleteUser: (userId: string) => Promise<void>;
+  getUserStats: () => Promise<UserStats>;
+  
+  // Listen for messages from topbar
+  onTopbarMessage: (callback: (type: string, data: any) => void) => void;
 
   // User change events
   onUserChanged: (callback: (userData: UserData) => void) => void;

@@ -58,7 +58,7 @@ interface TopBarAPI {
   getUserStats: () => Promise<UserStats>;
   resetGuestUser: () => Promise<{success: boolean}>;
   saveCurrentUserTabs: () => Promise<{success: boolean}>;
-
+  
   // User change events
   onUserChanged: (callback: (userData: UserData) => void) => void;
   removeUserChangedListener: () => void;
