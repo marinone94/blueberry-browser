@@ -1,33 +1,15 @@
 import { ElectronAPI } from "@electron-toolkit/preload";
-
-interface ChatRequest {
-  message: string;
-  context: {
-    url: string | null;
-    content: string | null;
-    text: string | null;
-  };
-  messageId: string;
-}
-
-interface ChatResponse {
-  messageId: string;
-  content: string;
-  isComplete: boolean;
-}
-
-interface TabInfo {
-  id: string;
-  title: string;
-  url: string;
-  isActive: boolean;
-}
+import type { ChatRequest, ChatResponse, TabInfo } from "./types";
 
 interface SidebarAPI {
   // Chat functionality
-  sendChatMessage: (request: ChatRequest) => Promise<void>;
+  sendChatMessage: (request: Partial<ChatRequest>) => Promise<void>;
+  clearChat: () => Promise<boolean>;
+  getMessages: () => Promise<any[]>;
   onChatResponse: (callback: (data: ChatResponse) => void) => void;
+  onMessagesUpdated: (callback: (messages: any[]) => void) => void;
   removeChatResponseListener: () => void;
+  removeMessagesUpdatedListener: () => void;
 
   // Page content access
   getPageContent: () => Promise<string | null>;

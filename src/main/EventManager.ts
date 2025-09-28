@@ -30,6 +30,7 @@ export class EventManager {
     // Create new tab
     ipcMain.handle("create-tab", (_, url?: string) => {
       const newTab = this.mainWindow.createTab(url);
+      this.mainWindow.switchActiveTab(newTab.id);
       return { id: newTab.id, title: newTab.title, url: newTab.url };
     });
 
