@@ -37,6 +37,18 @@ const sidebarAPI = {
 
   // Tab information
   getActiveTabInfo: () => electronAPI.ipcRenderer.invoke("get-active-tab-info"),
+
+  // User Account Management (subset of what's available in topbar)
+  getCurrentUser: () => electronAPI.ipcRenderer.invoke("get-current-user"),
+  getUsers: () => electronAPI.ipcRenderer.invoke("get-users"),
+
+  // User change events
+  onUserChanged: (callback: (userData: any) => void) => {
+    electronAPI.ipcRenderer.on("user-changed", (_, userData) => callback(userData));
+  },
+  removeUserChangedListener: () => {
+    electronAPI.ipcRenderer.removeAllListeners("user-changed");
+  },
 };
 
 // Use `contextBridge` APIs to expose Electron APIs to

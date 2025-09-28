@@ -22,6 +22,9 @@ export class EventManager {
     // Dark mode events
     this.handleDarkModeEvents();
 
+    // User account events
+    this.handleUserAccountEvents();
+
     // Debug events
     this.handleDebugEvents();
   }
@@ -165,8 +168,8 @@ export class EventManager {
     });
 
     // Clear chat
-    ipcMain.handle("sidebar-clear-chat", () => {
-      this.mainWindow.sidebar.client.clearMessages();
+    ipcMain.handle("sidebar-clear-chat", async () => {
+      await this.mainWindow.sidebar.client.clearMessages();
       return true;
     });
 
@@ -219,9 +222,116 @@ export class EventManager {
     });
   }
 
+  private handleUserAccountEvents(): void {
+    // Get all users
+    ipcMain.handle("get-users", () => {
+      return this.mainWindow.userAccountManager.getAllUsers();
+    });
+
+    // Get current user
+    ipcMain.handle("get-current-user", () => {
+      return this.mainWindow.userAccountManager.getCurrentUser();
+    });
+
+    // Create new user
+    ipcMain.handle("create-user", async (_, userData: {name: string, email?: string, birthday?: string}) => {
+      const result = await this.mainWindow.userAccountManager.createUser(userData);
+      return result;
+    });
+
+    // Switch user
+    ipcMain.handle("switch-user", async (_, userId: string, options?: {keepCurrentTabs: boolean}) => {
+      const switchOptions = options || { keepCurrentTabs: false };
+      
+      // Switch user in window (handles tab management)
+      const result = await this.mainWindow.switchUser(userId, switchOptions);
+      
+      if (result.success) {
+        // Notify LLM client about user switch
+        await this.mainWindow.sidebar.client.handleUserSwitch();
+        
+        // Broadcast user change to all renderer processes
+        this.broadcastUserChange();
+      }
+      
+      return result;
+    });
+
+    // Update user
+    ipcMain.handle("update-user", async (_, userId: string, updates: {name?: string, email?: string, birthday?: string}) => {
+      const result = await this.mainWindow.userAccountManager.updateUser(userId, updates);
+      
+      if (result.success) {
+        this.broadcastUserChange();
+      }
+      
+      return result;
+    });
+
+    // Delete user
+    ipcMain.handle("delete-user", async (_, userId: string) => {
+      const result = await this.mainWindow.userAccountManager.deleteUser(userId);
+      
+      if (result.success) {
+        // If current user was deleted, LLM client will automatically switch
+        await this.mainWindow.sidebar.client.handleUserSwitch();
+        this.broadcastUserChange();
+      }
+      
+      return result;
+    });
+
+    // Get user statistics
+    ipcMain.handle("get-user-stats", () => {
+      return this.mainWindow.userAccountManager.getUserStats();
+    });
+
+    // Reset guest user
+    ipcMain.handle("reset-guest-user", async () => {
+      await this.mainWindow.userAccountManager.resetGuestUser();
+      
+      // If current user is guest, reload their messages
+      if (this.mainWindow.userAccountManager.isCurrentUserGuest()) {
+        await this.mainWindow.sidebar.client.handleUserSwitch();
+      }
+      
+      this.broadcastUserChange();
+      return { success: true };
+    });
+
+    // Save current user's tabs
+    ipcMain.handle("save-current-user-tabs", async () => {
+      await this.mainWindow.saveCurrentUserTabs();
+      return { success: true };
+    });
+  }
+
   private handleDebugEvents(): void {
     // Ping test
     ipcMain.on("ping", () => console.log("pong"));
+  }
+
+  private broadcastUserChange(): void {
+    const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+    const allUsers = this.mainWindow.userAccountManager.getAllUsers();
+    const userStats = this.mainWindow.userAccountManager.getUserStats();
+
+    const userData = {
+      currentUser,
+      allUsers,
+      userStats
+    };
+
+    // Send to topbar
+    this.mainWindow.topBar.view.webContents.send("user-changed", userData);
+
+    // Send to sidebar
+    this.mainWindow.sidebar.view.webContents.send("user-changed", userData);
+
+    // Send to all tabs
+    this.mainWindow.allTabs.forEach((tab) => {
+      tab.webContents.send("user-changed", userData);
+    });
   }
 
   private broadcastDarkMode(sender: WebContents, isDarkMode: boolean): void {

@@ -483,6 +483,126 @@ This document traces the complete code execution paths for each major feature in
 
 ---
 
+## User Account Management
+
+### User Account Creation
+
+**User Action**: Create new user account with name, email (optional), birthday (optional)
+
+**Complete Flow**:
+
+1. **UI Interaction**: User fills account creation form
+2. **Validation**: Name uniqueness and email format validation  
+3. **IPC Call**: `topBarAPI.createUser(userData)`
+4. **UserAccountManager**: Creates user with UUID and session partition
+5. **Data Persistence**: User saved to `accounts.json`
+6. **Response**: Success/error returned to UI
+
+**Key Functions Involved**:
+- `UserAccountManager.createUser()` - Core user creation logic
+- `UserAccountManager.validateUserName()` - Name uniqueness check
+- `UserDataManager.ensureUserDataDir()` - Create user data directory
+
+### User Switching with Tab Management
+
+**User Action**: Switch to different user account
+
+**Complete Flow**:
+
+1. **UI Interaction**: User selects different account from switcher
+2. **Tab Management Decision**: Keep current tabs or load user's saved tabs
+3. **IPC Call**: `topBarAPI.switchUser(userId, {keepCurrentTabs: boolean})`
+
+4. **UserAccountManager.switchUser()**:
+   ```typescript
+   if (options.keepCurrentTabs) {
+     // Save current tabs to new user
+     await saveCurrentUserTabs(currentTabs)
+   }
+   switchUser(userId) // Change current user
+   ```
+
+5. **Window.switchUser()**:
+   ```typescript
+   if (options.keepCurrentTabs) {
+     // Reload all tabs with new session partition
+     await reloadAllTabsWithNewSession()
+   } else {
+     // Close current tabs, load user's saved tabs
+     await closeAllTabs()
+     loadUserTabs(switchResult.tabsToLoad)
+   }
+   ```
+
+6. **LLMClient.handleUserSwitch()**:
+   ```typescript
+   // Save current user's chat history
+   await saveMessagesForUser(previousUserId)
+   // Load new user's chat history  
+   messages = await loadChatHistory(newUserId)
+   ```
+
+7. **EventManager.broadcastUserChange()**: Notify all renderers of user change
+
+**Key Functions Involved**:
+- `UserAccountManager.switchUser()` - Core switching logic
+- `Window.switchUser()` - Tab management during switch
+- `Window.reloadAllTabsWithNewSession()` - Session partition update
+- `LLMClient.handleUserSwitch()` - Chat history switching
+- `EventManager.broadcastUserChange()` - UI synchronization
+
+### Guest User Management
+
+**Purpose**: Provide incognito-like browsing experience
+
+**Guest User Characteristics**:
+- Always available and fresh on startup
+- No data persistence between sessions
+- Session partition: `persist:guest`
+- Cannot be deleted
+- Data cleared on every app restart
+
+**Implementation** (`UserAccountManager`):
+```typescript
+private static readonly GUEST_USER: UserAccount = {
+  id: 'guest',
+  name: 'Guest User', 
+  email: '',
+  isGuest: true,
+  sessionPartition: 'persist:guest'
+}
+
+async setupGuestUser() {
+  // Always clear guest data for fresh start
+  await userDataManager.clearUserData('guest')
+  // Create fresh guest user
+  users.set('guest', { ...GUEST_USER, createdAt: new Date() })
+}
+```
+
+### Session Isolation
+
+**Purpose**: Complete privacy between users
+
+**Implementation**: Each user gets unique Electron session partition
+```typescript
+// Tab.ts constructor
+new WebContentsView({
+  webPreferences: {
+    partition: sessionPartition // e.g., "persist:user-123"
+  }
+})
+```
+
+**Isolation Includes**:
+- Cookies and localStorage
+- Cache and IndexedDB  
+- Service Workers
+- Network requests/responses
+- Extensions (if any)
+
+---
+
 ## Advanced Browser Features
 
 ### JavaScript Execution in Tabs

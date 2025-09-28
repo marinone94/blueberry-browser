@@ -1,6 +1,31 @@
 import { ElectronAPI } from "@electron-toolkit/preload";
 import type { ChatRequest, ChatResponse, TabInfo } from "./types";
 
+interface UserAccount {
+  id: string;
+  name: string;
+  email: string;
+  birthday?: string;
+  createdAt: Date;
+  lastActiveAt: Date;
+  sessionPartition: string;
+  isGuest: boolean;
+}
+
+interface UserStats {
+  totalUsers: number;
+  nonGuestUsers: number;
+  currentUser: string | null;
+  maxUsers: number;
+  hasGuestUser: boolean;
+}
+
+interface UserData {
+  currentUser: UserAccount | null;
+  allUsers: UserAccount[];
+  userStats: UserStats;
+}
+
 interface SidebarAPI {
   // Chat functionality
   sendChatMessage: (request: Partial<ChatRequest>) => Promise<void>;
@@ -18,6 +43,14 @@ interface SidebarAPI {
 
   // Tab information
   getActiveTabInfo: () => Promise<TabInfo | null>;
+
+  // User Account Management (subset)
+  getCurrentUser: () => Promise<UserAccount | null>;
+  getUsers: () => Promise<UserAccount[]>;
+
+  // User change events
+  onUserChanged: (callback: (userData: UserData) => void) => void;
+  removeUserChangedListener: () => void;
 }
 
 declare global {

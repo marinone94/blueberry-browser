@@ -31,6 +31,29 @@ const topBarAPI = {
   // Sidebar
   toggleSidebar: () =>
     electronAPI.ipcRenderer.invoke("toggle-sidebar"),
+
+  // User Account Management
+  getUsers: () => electronAPI.ipcRenderer.invoke("get-users"),
+  getCurrentUser: () => electronAPI.ipcRenderer.invoke("get-current-user"),
+  createUser: (userData: {name: string, email?: string, birthday?: string}) =>
+    electronAPI.ipcRenderer.invoke("create-user", userData),
+  switchUser: (userId: string, options?: {keepCurrentTabs: boolean}) =>
+    electronAPI.ipcRenderer.invoke("switch-user", userId, options),
+  updateUser: (userId: string, updates: {name?: string, email?: string, birthday?: string}) =>
+    electronAPI.ipcRenderer.invoke("update-user", userId, updates),
+  deleteUser: (userId: string) =>
+    electronAPI.ipcRenderer.invoke("delete-user", userId),
+  getUserStats: () => electronAPI.ipcRenderer.invoke("get-user-stats"),
+  resetGuestUser: () => electronAPI.ipcRenderer.invoke("reset-guest-user"),
+  saveCurrentUserTabs: () => electronAPI.ipcRenderer.invoke("save-current-user-tabs"),
+
+  // User change events
+  onUserChanged: (callback: (userData: any) => void) => {
+    electronAPI.ipcRenderer.on("user-changed", (_, userData) => callback(userData));
+  },
+  removeUserChangedListener: () => {
+    electronAPI.ipcRenderer.removeAllListeners("user-changed");
+  },
 };
 
 // Use `contextBridge` APIs to expose Electron APIs to

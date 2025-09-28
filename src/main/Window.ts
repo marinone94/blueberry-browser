@@ -2,6 +2,8 @@ import { BaseWindow, shell } from "electron";
 import { Tab } from "./Tab";
 import { TopBar } from "./TopBar";
 import { SideBar } from "./SideBar";
+import { UserAccountManager, type TabSwitchOptions } from "./UserAccountManager";
+import { UserDataManager, type UserTabState } from "./UserDataManager";
 
 export class Window {
   private _baseWindow: BaseWindow;
@@ -11,6 +13,8 @@ export class Window {
   private tabCounter: number = 0;
   private _topBar: TopBar;
   private _sideBar: SideBar;
+  private _userDataManager: UserDataManager;
+  private _userAccountManager: UserAccountManager;
 
   constructor() {
     // Create the browser window.
@@ -26,13 +30,18 @@ export class Window {
 
     this._baseWindow.setMinimumSize(1000, 800);
 
+    // Initialize user management
+    this._userDataManager = new UserDataManager();
+    this._userAccountManager = new UserAccountManager(this._userDataManager);
+
     this._topBar = new TopBar(this._baseWindow);
     this._sideBar = new SideBar(this._baseWindow);
 
     // Set the window reference on the LLM client to avoid circular dependency
     this._sideBar.client.setWindow(this);
+    this._sideBar.client.setUserAccountManager(this._userAccountManager);
 
-    // Create the first tab
+    // Create the first tab with current user's session
     const firstTab = this.createTab();
     this.switchActiveTab(firstTab.id);
 
@@ -93,7 +102,8 @@ export class Window {
   // Tab management methods
   createTab(url?: string): Tab {
     const tabId = `tab-${++this.tabCounter}`;
-    const tab = new Tab(tabId, url);
+    const sessionPartition = this._userAccountManager.getCurrentSessionPartition();
+    const tab = new Tab(tabId, url, sessionPartition);
 
     // Add the tab's WebContentsView to the window
     this._baseWindow.contentView.addChildView(tab.view);
@@ -279,5 +289,126 @@ export class Window {
   // Getter for baseWindow to access from Menu
   get baseWindow(): BaseWindow {
     return this._baseWindow;
+  }
+
+  // User Account Management
+  get userAccountManager(): UserAccountManager {
+    return this._userAccountManager;
+  }
+
+  get userDataManager(): UserDataManager {
+    return this._userDataManager;
+  }
+
+  /**
+   * Convert current tabs to UserTabState format
+   */
+  private getCurrentTabsState(): UserTabState[] {
+    return this.allTabs.map(tab => ({
+      id: tab.id,
+      url: tab.url,
+      title: tab.title,
+      isActive: tab.id === this.activeTabId
+    }));
+  }
+
+  /**
+   * Switch user with tab management options
+   */
+  async switchUser(userId: string, options: TabSwitchOptions = { keepCurrentTabs: false }): Promise<{ success: boolean; error?: string }> {
+    try {
+      // Save current user's tabs if they want to keep them
+      if (options.keepCurrentTabs && !this._userAccountManager.isCurrentUserGuest()) {
+        const currentTabs = this.getCurrentTabsState();
+        await this._userAccountManager.saveCurrentUserTabs(currentTabs);
+      }
+
+      // Switch user
+      const switchResult = await this._userAccountManager.switchUser(userId, options);
+      if (!switchResult.success) {
+        return switchResult;
+      }
+
+      // Handle tab switching based on options
+      if (options.keepCurrentTabs) {
+        // Keep current tabs - they now belong to the new user
+        // Update all existing tabs to use new user's session partition
+        await this.reloadAllTabsWithNewSession();
+      } else {
+        // Close current tabs and load user's saved tabs
+        await this.closeAllTabs();
+        
+        if (switchResult.tabsToLoad && switchResult.tabsToLoad.length > 0) {
+          // Load user's saved tabs
+          for (const tabState of switchResult.tabsToLoad) {
+            const tab = this.createTab(tabState.url);
+            if (tabState.isActive) {
+              this.switchActiveTab(tab.id);
+            }
+          }
+        } else {
+          // No saved tabs, create a default tab
+          const defaultTab = this.createTab();
+          this.switchActiveTab(defaultTab.id);
+        }
+      }
+
+      console.log(`Successfully switched to user: ${this._userAccountManager.getCurrentUser()?.name}`);
+      return { success: true };
+    } catch (error) {
+      console.error("Failed to switch user:", error);
+      return { success: false, error: "Failed to switch user" };
+    }
+  }
+
+  /**
+   * Reload all tabs with new session partition (for user switching)
+   */
+  async reloadAllTabsWithNewSession(): Promise<void> {
+    const tabStates = this.getCurrentTabsState();
+    const activeTabState = tabStates.find(tab => tab.isActive);
+    
+    // Close all existing tabs
+    await this.closeAllTabs();
+    
+    // Recreate tabs with new session partition
+    for (const tabState of tabStates) {
+      const tab = this.createTab(tabState.url);
+      if (tabState.isActive) {
+        this.switchActiveTab(tab.id);
+      }
+    }
+    
+    // If no active tab was found, activate the first one
+    if (!activeTabState && this.allTabs.length > 0) {
+      this.switchActiveTab(this.allTabs[0].id);
+    }
+  }
+
+  /**
+   * Close all tabs
+   */
+  async closeAllTabs(): Promise<void> {
+    const tabIds = Array.from(this.tabsMap.keys());
+    for (const tabId of tabIds) {
+      this.closeTab(tabId);
+    }
+  }
+
+  /**
+   * Save current user's tabs
+   */
+  async saveCurrentUserTabs(): Promise<void> {
+    const currentTabs = this.getCurrentTabsState();
+    await this._userAccountManager.saveCurrentUserTabs(currentTabs);
+  }
+
+  /**
+   * Create tab from saved state
+   */
+  createTabFromState(tabState: UserTabState): Tab {
+    const tab = this.createTab(tabState.url);
+    // Additional restoration logic can be added here (scroll position, etc.)
+    return tab;
   }
 }

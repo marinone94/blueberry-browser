@@ -5,6 +5,7 @@ import { anthropic } from "@ai-sdk/anthropic";
 import * as dotenv from "dotenv";
 import { join } from "path";
 import type { Window } from "./Window";
+import type { UserAccountManager } from "./UserAccountManager";
 
 // Load environment variables from .env file
 dotenv.config({ path: join(__dirname, "../../.env") });
@@ -23,7 +24,7 @@ type LLMProvider = "openai" | "anthropic";
 
 const DEFAULT_MODELS: Record<LLMProvider, string> = {
   openai: "gpt-5-mini",
-  anthropic: "claude-4-sonnet-20250522",
+  anthropic: "claude-sonnet-4-20250514",
 };
 
 const MAX_CONTEXT_LENGTH = 4000;
@@ -32,10 +33,12 @@ const DEFAULT_TEMPERATURE = 0.7;
 export class LLMClient {
   private readonly webContents: WebContents;
   private window: Window | null = null;
+  private userAccountManager: UserAccountManager | null = null;
   private readonly provider: LLMProvider;
   private readonly modelName: string;
   private readonly model: LanguageModel | null;
   private messages: CoreMessage[] = [];
+  private currentUserId: string | null = null;
 
   constructor(webContents: WebContents) {
     this.webContents = webContents;
@@ -49,6 +52,67 @@ export class LLMClient {
   // Set the window reference after construction to avoid circular dependencies
   setWindow(window: Window): void {
     this.window = window;
+  }
+
+  // Set the user account manager reference
+  setUserAccountManager(userAccountManager: UserAccountManager): void {
+    this.userAccountManager = userAccountManager;
+    this.loadCurrentUserMessages();
+  }
+
+  /**
+   * Load messages for current user
+   */
+  private async loadCurrentUserMessages(): Promise<void> {
+    if (!this.userAccountManager || !this.window) return;
+
+    const currentUser = this.userAccountManager.getCurrentUser();
+    if (!currentUser) return;
+
+    // If switching users, save current messages first
+    if (this.currentUserId && this.currentUserId !== currentUser.id && this.messages.length > 0) {
+      await this.saveMessagesForUser(this.currentUserId);
+    }
+
+    // Load messages for new user
+    this.currentUserId = currentUser.id;
+    try {
+      this.messages = await this.window.userDataManager.loadChatHistory(currentUser.id);
+      this.sendMessagesToRenderer();
+      console.log(`Loaded ${this.messages.length} messages for user: ${currentUser.name}`);
+    } catch (error) {
+      console.error("Failed to load user messages:", error);
+      this.messages = [];
+    }
+  }
+
+  /**
+   * Save messages for specific user
+   */
+  private async saveMessagesForUser(userId: string): Promise<void> {
+    if (!this.window || !this.userAccountManager) return;
+
+    try {
+      await this.window.userDataManager.saveChatHistory(userId, this.messages);
+      console.log(`Saved ${this.messages.length} messages for user: ${userId}`);
+    } catch (error) {
+      console.error(`Failed to save messages for user ${userId}:`, error);
+    }
+  }
+
+  /**
+   * Save messages for current user
+   */
+  private async saveCurrentUserMessages(): Promise<void> {
+    if (!this.currentUserId) return;
+    await this.saveMessagesForUser(this.currentUserId);
+  }
+
+  /**
+   * Handle user switching - called when user account changes
+   */
+  async handleUserSwitch(): Promise<void> {
+    await this.loadCurrentUserMessages();
   }
 
   private getProvider(): LLMProvider {
@@ -145,6 +209,9 @@ export class LLMClient {
       // Send updated messages to renderer
       this.sendMessagesToRenderer();
 
+      // Save messages for current user
+      await this.saveCurrentUserMessages();
+
       if (!this.model) {
         this.sendErrorMessage(
           request.messageId,
@@ -161,9 +228,12 @@ export class LLMClient {
     }
   }
 
-  clearMessages(): void {
+  async clearMessages(): Promise<void> {
     this.messages = [];
     this.sendMessagesToRenderer();
+    
+    // Save empty messages for current user
+    await this.saveCurrentUserMessages();
   }
 
   getMessages(): CoreMessage[] {
@@ -291,6 +361,9 @@ export class LLMClient {
       content: accumulatedText,
     };
     this.sendMessagesToRenderer();
+
+    // Save messages for current user after assistant response
+    await this.saveCurrentUserMessages();
 
     // Send the final complete signal
     this.sendStreamChunk(messageId, {

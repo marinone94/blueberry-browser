@@ -226,20 +226,86 @@ Dark Mode: dark-mode-changed (→ broadcast to all processes)
 
 ## AI Integration
 
+### 📄 src/main/UserAccountManager.ts
+**Purpose**: Core user account management and session isolation
+
+**Key Classes**:
+- `UserAccountManager`: Manages user accounts, switching, and session partitioning
+
+**Key Methods**:
+- `createUser()`: Create new user with validation and UUID generation
+- `switchUser()`: Switch between users with tab management options
+- `deleteUser()`: Remove user and cleanup data
+- `getCurrentUser()`, `getAllUsers()`: User access methods
+- `getCurrentSessionPartition()`: Get session partition for current user
+
+**Key Features**:
+- Guest user (always fresh, incognito-like)
+- User persistence across app restarts
+- Session partition isolation per user
+- Tab management during user switching
+- Maximum 10 users limit
+
+**Dependencies**:
+- **Uses**: UserDataManager for data persistence, uuid for ID generation
+- **Used by**: Window (user switching), EventManager (IPC handlers), LLMClient (chat history)
+
+**Data Storage**:
+- `accounts.json`: User metadata
+- `current-user.json`: Last active non-guest user
+- Session partitions: `persist:user-${userId}` or `persist:guest`
+
+### 📄 src/main/UserDataManager.ts
+**Purpose**: User-specific data persistence and file system operations
+
+**Key Classes**:
+- `UserDataManager`: Handles file operations for user-isolated data
+
+**Key Methods**:
+- `saveChatHistory()`, `loadChatHistory()`: User-specific chat persistence
+- `saveUserTabs()`, `loadUserTabs()`: Tab state management
+- `savePreferences()`, `loadPreferences()`: User preferences (dummy interfaces)
+- `clearUserData()`: Complete user data removal
+- `getUserDataSize()`: Storage usage tracking
+
+**Key Features**:
+- Complete user data isolation
+- Automatic directory creation
+- Error handling and graceful degradation
+- Support for multiple data types (chat, tabs, preferences, etc.)
+
+**Dependencies**:
+- **Uses**: Node.js fs/promises, Electron app.getPath()
+- **Used by**: UserAccountManager, LLMClient (chat history), Window (tab persistence)
+
+**Storage Structure**:
+```
+userData/users/user-data/
+├── user-123/
+│   ├── chat-history.json
+│   ├── tabs.json
+│   ├── preferences.json
+│   └── ...
+└── guest/ (cleared on startup)
+```
+
 ### 📄 src/main/LLMClient.ts
-**Purpose**: AI language model integration with context awareness
+**Purpose**: AI language model integration with user-specific chat history
 
 **Key Classes**:
 - `LLMClient`: Manages OpenAI/Anthropic API communication with streaming
 
 **Key Methods**:
-- `sendChatMessage(request: ChatRequest)`: Main AI interaction entry point
+- `sendChatMessage(request: ChatRequest)`: Main AI interaction entry point with user-specific history
 - `streamResponse()`: Handles AI response streaming with real-time updates
 - `prepareMessagesWithContext()`: Builds conversation with page context
 - `buildSystemPrompt()`: Creates context-aware system message
+- `handleUserSwitch()`: Switch chat history when user account changes
+- `loadCurrentUserMessages()`: Load chat history for current user
+- `saveCurrentUserMessages()`: Persist chat history for current user
 
 **Dependencies**:
-- **Uses**: ai SDK (streamText), @ai-sdk/openai, @ai-sdk/anthropic, Window (for screenshots/content)
+- **Uses**: ai SDK (streamText), @ai-sdk/openai, @ai-sdk/anthropic, Window (for screenshots/content), UserAccountManager (user switching), UserDataManager (chat history persistence)
 - **Used by**: SideBar class, EventManager (via chat IPC)
 
 **AI Provider Support**:

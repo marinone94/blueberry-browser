@@ -6,19 +6,22 @@ export class Tab {
   private _title: string;
   private _url: string;
   private _isVisible: boolean = false;
+  private _sessionPartition: string;
 
-  constructor(id: string, url: string = "https://www.google.com") {
+  constructor(id: string, url: string = "https://www.google.com", sessionPartition: string = "default") {
     this._id = id;
     this._url = url;
     this._title = "New Tab";
+    this._sessionPartition = sessionPartition;
 
-    // Create the WebContentsView for web content only
+    // Create the WebContentsView for web content with user-specific session partition
     this.webContentsView = new WebContentsView({
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
         sandbox: true,
         webSecurity: true,
+        partition: sessionPartition,
       },
     });
 
@@ -68,6 +71,10 @@ export class Tab {
 
   get view(): WebContentsView {
     return this.webContentsView;
+  }
+
+  get sessionPartition(): string {
+    return this._sessionPartition;
   }
 
   // Public methods
