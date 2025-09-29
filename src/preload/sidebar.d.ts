@@ -1,6 +1,16 @@
 import { ElectronAPI } from "@electron-toolkit/preload";
 import type { ChatRequest, ChatResponse, TabInfo } from "./types";
 
+interface ExtendedElectronAPI extends ElectronAPI {
+  reportActivity: (activityType: string, data: any) => void;
+  reportChatInteraction: (data: {
+    userMessage: string;
+    contextUrl?: string;
+    conversationLength: number;
+    responseTime?: number;
+  }) => void;
+}
+
 interface UserAccount {
   id: string;
   name: string;
@@ -67,6 +77,12 @@ interface SidebarAPI {
   clearBrowsingHistory: () => Promise<{success: boolean, error?: string}>;
   removeHistoryEntry: (entryId: string) => Promise<{success: boolean, error?: string}>;
   navigateFromHistory: (url: string) => Promise<{id: string, title: string, url: string, wasExisting: boolean}>;
+
+  // Activity data functionality (for future use)
+  getActivityData: (userId: string, date?: string) => Promise<any[]>;
+  getActivityDateRange: (userId: string) => Promise<{startDate: string, endDate: string, totalDays: number}>;
+  clearActivityData: (userId: string, beforeDate?: string) => Promise<{success: boolean, error?: string}>;
+  getActivityDataSize: (userId: string) => Promise<number>;
   
   // Listen for messages from topbar
   onTopbarMessage: (callback: (type: string, data: any) => void) => void;
@@ -78,7 +94,7 @@ interface SidebarAPI {
 
 declare global {
   interface Window {
-    electron: ElectronAPI;
+    electronAPI: ExtendedElectronAPI;
     sidebarAPI: SidebarAPI;
   }
 }

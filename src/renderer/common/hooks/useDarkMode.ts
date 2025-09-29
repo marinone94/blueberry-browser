@@ -23,8 +23,8 @@ export const useDarkMode = () => {
     localStorage.setItem("darkMode", JSON.stringify(isDarkMode));
 
     // Broadcast dark mode change to main process
-    if (window.electron) {
-      window.electron.ipcRenderer.send("dark-mode-changed", isDarkMode);
+    if (window.electronAPI) {
+      window.electronAPI.ipcRenderer.send("dark-mode-changed", isDarkMode);
     }
   }, [isDarkMode]);
 
@@ -34,13 +34,13 @@ export const useDarkMode = () => {
       setIsDarkMode(newDarkMode);
     };
 
-    if (window.electron) {
-      window.electron.ipcRenderer.on("dark-mode-updated", handleDarkModeUpdate);
+    if (window.electronAPI) {
+      window.electronAPI.ipcRenderer.on("dark-mode-updated", handleDarkModeUpdate);
     }
 
     return () => {
-      if (window.electron) {
-        window.electron.ipcRenderer.removeListener(
+      if (window.electronAPI) {
+        window.electronAPI.ipcRenderer.removeListener(
           "dark-mode-updated",
           handleDarkModeUpdate
         );

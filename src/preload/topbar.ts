@@ -1,6 +1,14 @@
 import { contextBridge } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
 
+// Extended electronAPI with activity tracking
+const extendedElectronAPI = {
+  ...electronAPI,
+  // Activity reporting for injected scripts
+  reportActivity: (activityType: string, data: any) =>
+    electronAPI.ipcRenderer.send("report-activity", activityType, data),
+};
+
 // TopBar specific APIs
 const topBarAPI = {
   // Tab management
@@ -65,14 +73,14 @@ const topBarAPI = {
 // just add to the DOM global.
 if (process.contextIsolated) {
   try {
-    contextBridge.exposeInMainWorld("electron", electronAPI);
+    contextBridge.exposeInMainWorld("electronAPI", extendedElectronAPI);
     contextBridge.exposeInMainWorld("topBarAPI", topBarAPI);
   } catch (error) {
     console.error(error);
   }
 } else {
   // @ts-ignore (define in dts)
-  window.electron = electronAPI;
+  window.electronAPI = extendedElectronAPI;
   // @ts-ignore (define in dts)
   window.topBarAPI = topBarAPI;
 }

@@ -1,5 +1,6 @@
 import { ipcMain, WebContents } from "electron";
 import type { Window } from "./Window";
+import type { ActivityType } from "./ActivityTypes";
 
 export class EventManager {
   private mainWindow: Window;
@@ -27,6 +28,9 @@ export class EventManager {
 
     // History events
     this.handleHistoryEvents();
+
+    // Activity tracking events
+    this.handleActivityTrackingEvents();
 
     // Inter-component communication events
     this.handleCommunicationEvents();
@@ -376,6 +380,79 @@ export class EventManager {
   private handleDebugEvents(): void {
     // Ping test
     ipcMain.on("ping", () => console.log("pong"));
+  }
+
+  private handleActivityTrackingEvents(): void {
+    // Handle activity reports from renderer processes (injected scripts)
+    ipcMain.on('report-activity', (event, activityType: ActivityType, data: any) => {
+      const webContents = event.sender;
+      const tab = this.mainWindow.findTabByWebContents(webContents);
+      
+      if (tab) {
+        // Let the tab handle the activity report
+        tab.handleActivityReport(activityType, data);
+      } else {
+        console.warn('Activity report from unknown WebContents:', activityType);
+      }
+    });
+
+    // Activity data query endpoints for future use
+    ipcMain.handle('get-activity-data', async (_, userId: string, date?: string) => {
+      try {
+        return await this.mainWindow.userDataManager.loadRawActivityData(userId, date);
+      } catch (error) {
+        console.error('Failed to load activity data:', error);
+        return [];
+      }
+    });
+
+    ipcMain.handle('get-activity-date-range', async (_, userId: string) => {
+      try {
+        return await this.mainWindow.userDataManager.getRawActivityDateRange(userId);
+      } catch (error) {
+        console.error('Failed to get activity date range:', error);
+        return { startDate: '', endDate: '', totalDays: 0 };
+      }
+    });
+
+    ipcMain.handle('clear-activity-data', async (_, userId: string, beforeDate?: string) => {
+      try {
+        await this.mainWindow.userDataManager.clearRawActivityData(userId, beforeDate);
+        return { success: true };
+      } catch (error) {
+        console.error('Failed to clear activity data:', error);
+        return { success: false, error: String(error) };
+      }
+    });
+
+    ipcMain.handle('get-activity-data-size', async (_, userId: string) => {
+      try {
+        return await this.mainWindow.userDataManager.getRawActivityDataSize(userId);
+      } catch (error) {
+        console.error('Failed to get activity data size:', error);
+        return 0;
+      }
+    });
+
+    // Handle chat interactions from sidebar
+    ipcMain.on('chat-interaction', (_, data: {
+      userMessage: string;
+      contextUrl?: string;
+      conversationLength: number;
+      responseTime?: number;
+    }) => {
+      if (this.mainWindow.activityCollector) {
+        this.mainWindow.activityCollector.collectChatInteraction({
+          userMessage: data.userMessage,
+          messageLength: data.userMessage.length,
+          contextUrl: data.contextUrl,
+          conversationLength: data.conversationLength,
+          responseTime: data.responseTime
+        });
+      }
+    });
+
+    console.log('Activity tracking IPC handlers initialized');
   }
 
   private broadcastUserChange(): void {

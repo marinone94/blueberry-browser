@@ -156,7 +156,7 @@ export const History: React.FC<HistoryProps> = ({ onClose }) => {
 
   const handleNavigate = async (url: string) => {
     try {
-      const result = await navigateToUrl(url)
+      await navigateToUrl(url)
       // Optional: You could show a toast notification here
       // For now, the console log in navigateToUrl provides feedback
       onClose() // Close history panel after navigation

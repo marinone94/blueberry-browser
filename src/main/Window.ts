@@ -4,6 +4,7 @@ import { TopBar } from "./TopBar";
 import { SideBar } from "./SideBar";
 import { UserAccountManager, type TabSwitchOptions } from "./UserAccountManager";
 import { UserDataManager, type UserTabState } from "./UserDataManager";
+import { ActivityCollector } from "./ActivityCollector";
 
 export class Window {
   private _baseWindow!: BaseWindow;
@@ -15,6 +16,7 @@ export class Window {
   private _sideBar!: SideBar;
   private _userDataManager!: UserDataManager;
   private _userAccountManager!: UserAccountManager;
+  private _activityCollector?: ActivityCollector;
 
   private constructor() {
     // Private constructor - use Window.create() instead
@@ -54,6 +56,9 @@ export class Window {
     this._sideBar.client.setWindow(this);
     this._sideBar.client.setUserAccountManager(this._userAccountManager);
 
+    // Initialize activity tracking
+    await this.initializeActivityTracking();
+
     // Create the first tab with current user's session
     const firstTab = this.createTab();
     this.switchActiveTab(firstTab.id);
@@ -86,10 +91,56 @@ export class Window {
 
   private setupEventListeners(): void {
     this._baseWindow.on("closed", () => {
+      // Clean up activity collector
+      if (this._activityCollector) {
+        this._activityCollector.destroy();
+      }
+      
       // Clean up all tabs when window is closed
       this.tabsMap.forEach((tab) => tab.destroy());
       this.tabsMap.clear();
     });
+  }
+
+  /**
+   * Initialize activity tracking for the current user
+   */
+  private async initializeActivityTracking(): Promise<void> {
+    const currentUser = this._userAccountManager.getCurrentUser();
+    if (currentUser && !currentUser.isGuest) {
+      // Destroy existing collector if any
+      if (this._activityCollector) {
+        await this._activityCollector.destroy();
+      }
+      
+      // Create new collector for current user
+      this._activityCollector = new ActivityCollector(currentUser.id, this._userDataManager);
+      console.log(`ActivityCollector initialized for user: ${currentUser.name} (${currentUser.id})`);
+      
+      // Set collector for all existing tabs
+      this.tabsMap.forEach(tab => {
+        tab.setActivityCollector(this._activityCollector!);
+      });
+    } else {
+      // No activity tracking for guest users
+      if (this._activityCollector) {
+        await this._activityCollector.destroy();
+        this._activityCollector = undefined;
+      }
+      console.log('Activity tracking disabled for guest user');
+    }
+  }
+
+  /**
+   * Find a tab by its WebContents instance
+   */
+  findTabByWebContents(webContents: any): Tab | undefined {
+    for (const tab of this.tabsMap.values()) {
+      if (tab.webContents === webContents) {
+        return tab;
+      }
+    }
+    return undefined;
   }
 
   // Getters
@@ -129,6 +180,11 @@ export class Window {
     
     const tab = new Tab(tabId, url, sessionPartition, historyCallback);
 
+    // Set activity collector if available
+    if (this._activityCollector) {
+      tab.setActivityCollector(this._activityCollector);
+    }
+
     // Add the tab's WebContentsView to the window
     this._baseWindow.contentView.addChildView(tab.view);
 
@@ -144,6 +200,16 @@ export class Window {
     // Store the tab
     this.tabsMap.set(tabId, tab);
 
+    // Track tab creation
+    if (this._activityCollector) {
+      this._activityCollector.collectTabAction({
+        action: 'create',
+        tabId: tabId,
+        url: url,
+        totalTabs: this.tabsMap.size
+      });
+    }
+
     // Hide the tab initially - it will be shown when activated via EventManager
     tab.hide();
 
@@ -154,6 +220,16 @@ export class Window {
     const tab = this.tabsMap.get(tabId);
     if (!tab) {
       return false;
+    }
+
+    // Track tab closure
+    if (this._activityCollector) {
+      this._activityCollector.collectTabAction({
+        action: 'close',
+        tabId: tabId,
+        url: tab.url,
+        totalTabs: this.tabsMap.size - 1
+      });
     }
 
     // Remove the WebContentsView from the window
@@ -198,6 +274,16 @@ export class Window {
     const tab = this.tabsMap.get(tabId);
     if (!tab) {
       return false;
+    }
+
+    // Track tab switching
+    if (this._activityCollector && this.activeTabId !== tabId) {
+      this._activityCollector.collectTabAction({
+        action: 'switch',
+        tabId: tabId,
+        url: tab.url,
+        totalTabs: this.tabsMap.size
+      });
     }
 
     // Hide the currently active tab
@@ -321,6 +407,10 @@ export class Window {
     return this._userAccountManager;
   }
 
+  get activityCollector(): ActivityCollector | undefined {
+    return this._activityCollector;
+  }
+
   get userDataManager(): UserDataManager {
     return this._userDataManager;
   }
@@ -375,6 +465,9 @@ export class Window {
       if (!switchResult.success) {
         return switchResult;
       }
+
+      // Reinitialize activity tracking for new user
+      await this.initializeActivityTracking();
 
       // Handle tab switching based on options
       if (options.keepCurrentTabs) {

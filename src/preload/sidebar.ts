@@ -1,5 +1,20 @@
 import { contextBridge } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
+
+// Extended electronAPI with activity tracking
+const extendedElectronAPI = {
+  ...electronAPI,
+  // Activity reporting for injected scripts
+  reportActivity: (activityType: string, data: any) =>
+    electronAPI.ipcRenderer.send("report-activity", activityType, data),
+  // Chat interaction reporting
+  reportChatInteraction: (data: {
+    userMessage: string;
+    contextUrl?: string;
+    conversationLength: number;
+    responseTime?: number;
+  }) => electronAPI.ipcRenderer.send("chat-interaction", data),
+};
 import type { ChatRequest, ChatResponse } from "./types";
 
 // Sidebar specific APIs
@@ -59,6 +74,16 @@ const sidebarAPI = {
     electronAPI.ipcRenderer.invoke("remove-history-entry", entryId),
   navigateFromHistory: (url: string) => 
     electronAPI.ipcRenderer.invoke("navigate-from-history", url),
+
+  // Activity data functionality (for future use)
+  getActivityData: (userId: string, date?: string) =>
+    electronAPI.ipcRenderer.invoke("get-activity-data", userId, date),
+  getActivityDateRange: (userId: string) =>
+    electronAPI.ipcRenderer.invoke("get-activity-date-range", userId),
+  clearActivityData: (userId: string, beforeDate?: string) =>
+    electronAPI.ipcRenderer.invoke("clear-activity-data", userId, beforeDate),
+  getActivityDataSize: (userId: string) =>
+    electronAPI.ipcRenderer.invoke("get-activity-data-size", userId),
   
   // Listen for messages from topbar
   onTopbarMessage: (callback: (type: string, data: any) => void) => {
@@ -79,14 +104,14 @@ const sidebarAPI = {
 // just add to the DOM global.
 if (process.contextIsolated) {
   try {
-    contextBridge.exposeInMainWorld("electron", electronAPI);
+    contextBridge.exposeInMainWorld("electronAPI", extendedElectronAPI);
     contextBridge.exposeInMainWorld("sidebarAPI", sidebarAPI);
   } catch (error) {
     console.error(error);
   }
 } else {
   // @ts-ignore (define in dts)
-  window.electron = electronAPI;
+  window.electronAPI = extendedElectronAPI;
   // @ts-ignore (define in dts)
   window.sidebarAPI = sidebarAPI;
 }

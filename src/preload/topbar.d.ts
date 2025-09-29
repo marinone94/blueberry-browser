@@ -1,6 +1,10 @@
 import { ElectronAPI } from "@electron-toolkit/preload";
 import type { TabInfo } from "./types";
 
+interface ExtendedElectronAPI extends ElectronAPI {
+  reportActivity: (activityType: string, data: any) => void;
+}
+
 interface UserAccount {
   id: string;
   name: string;
@@ -69,7 +73,7 @@ interface TopBarAPI {
 
 declare global {
   interface Window {
-    electron: ElectronAPI;
+    electronAPI: ExtendedElectronAPI;
     topBarAPI: TopBarAPI;
   }
 }

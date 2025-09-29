@@ -1,7 +1,8 @@
 import { app } from "electron";
-import { join } from "path";
+import { join, dirname } from "path";
 import { promises as fs } from "fs";
 import type { CoreMessage } from "ai";
+import type { RawActivityData } from "./ActivityTypes";
 
 // Dummy interfaces for future implementation
 export interface UserPreferences {
@@ -280,6 +281,156 @@ export class UserDataManager {
       return totalSize;
     } catch {
       return 0;
+    }
+  }
+
+  // ============================================================================
+  // RAW ACTIVITY DATA MANAGEMENT
+  // ============================================================================
+
+  /**
+   * Save raw activity data to daily files
+   */
+  async saveRawActivityData(userId: string, activities: RawActivityData[]): Promise<void> {
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const filePath = this.getRawActivityFilePath(userId, today);
+    
+    try {
+      // Load existing data for today
+      let existingData: RawActivityData[] = [];
+      try {
+        const fileContent = await fs.readFile(filePath, 'utf-8');
+        existingData = JSON.parse(fileContent);
+      } catch {
+        // File doesn't exist yet, start with empty array
+      }
+
+      // Append new activities
+      existingData.push(...activities);
+
+      // Ensure directory exists
+      await this.ensureDirectoryExists(dirname(filePath));
+
+      // Save back to file
+      await fs.writeFile(filePath, JSON.stringify(existingData, null, 2));
+
+    } catch (error) {
+      console.error(`Failed to save raw activity data for user ${userId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Load raw activity data for a specific date
+   */
+  async loadRawActivityData(userId: string, date?: string): Promise<RawActivityData[]> {
+    const targetDate = date || new Date().toISOString().split('T')[0];
+    const filePath = this.getRawActivityFilePath(userId, targetDate);
+    
+    try {
+      const fileContent = await fs.readFile(filePath, 'utf-8');
+      const data = JSON.parse(fileContent);
+      
+      // Convert timestamp strings back to Date objects
+      return data.map((activity: any) => ({
+        ...activity,
+        timestamp: new Date(activity.timestamp)
+      }));
+    } catch {
+      return []; // Return empty array if file doesn't exist
+    }
+  }
+
+  /**
+   * Get date range of available activity data
+   */
+  async getRawActivityDateRange(userId: string): Promise<{ startDate: string; endDate: string; totalDays: number }> {
+    const rawDataDir = this.getRawActivityDir(userId);
+    
+    try {
+      const files = await fs.readdir(rawDataDir);
+      const dateFiles = files
+        .filter(f => f.endsWith('.json') && /^\d{4}-\d{2}-\d{2}\.json$/.test(f))
+        .map(f => f.replace('.json', ''))
+        .sort();
+
+      if (dateFiles.length === 0) {
+        return { startDate: '', endDate: '', totalDays: 0 };
+      }
+
+      return {
+        startDate: dateFiles[0],
+        endDate: dateFiles[dateFiles.length - 1],
+        totalDays: dateFiles.length
+      };
+    } catch {
+      return { startDate: '', endDate: '', totalDays: 0 };
+    }
+  }
+
+  /**
+   * Clear raw activity data before a specific date
+   */
+  async clearRawActivityData(userId: string, beforeDate?: string): Promise<void> {
+    const rawDataDir = this.getRawActivityDir(userId);
+    
+    try {
+      const files = await fs.readdir(rawDataDir);
+      
+      for (const file of files) {
+        if (file.endsWith('.json')) {
+          const fileDate = file.replace('.json', '');
+          
+          if (!beforeDate || fileDate < beforeDate) {
+            await fs.unlink(join(rawDataDir, file));
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`Failed to clear raw activity data for user ${userId}:`, error);
+    }
+  }
+
+  /**
+   * Get total size of raw activity data for a user
+   */
+  async getRawActivityDataSize(userId: string): Promise<number> {
+    const rawDataDir = this.getRawActivityDir(userId);
+    
+    try {
+      const files = await fs.readdir(rawDataDir);
+      let totalSize = 0;
+      
+      for (const file of files) {
+        if (file.endsWith('.json')) {
+          const stats = await fs.stat(join(rawDataDir, file));
+          totalSize += stats.size;
+        }
+      }
+      
+      return totalSize;
+    } catch {
+      return 0;
+    }
+  }
+
+  // ============================================================================
+  // PRIVATE HELPER METHODS FOR RAW ACTIVITY DATA
+  // ============================================================================
+
+  private getRawActivityDir(userId: string): string {
+    return join(this.getUserDataPath(userId), 'raw-activity');
+  }
+
+  private getRawActivityFilePath(userId: string, date: string): string {
+    return join(this.getRawActivityDir(userId), `${date}.json`);
+  }
+
+  private async ensureDirectoryExists(dirPath: string): Promise<void> {
+    try {
+      await fs.mkdir(dirPath, { recursive: true });
+    } catch (error) {
+      // Directory might already exist, ignore error
     }
   }
 }
