@@ -62,12 +62,16 @@ Blueberry Browser implements a sophisticated multi-window Electron architecture 
 The main process (`src/main/`) orchestrates the entire application:
 
 - **`index.ts`**: Application entry point, handles lifecycle events
-- **`Window.ts`**: Manages BaseWindow with multiple WebContentsViews
-- **`EventManager.ts`**: Central IPC hub handling all communication
-- **`Tab.ts`**: Individual tab management with web content
+- **`Window.ts`**: Manages BaseWindow with multiple WebContentsViews and user account integration
+- **`EventManager.ts`**: Central IPC hub handling all communication including user account management
+- **`Tab.ts`**: Individual tab management with user-specific session partitioning
 - **`TopBar.ts`** & **`SideBar.ts`**: UI component managers
-- **`LLMClient.ts`**: AI integration with OpenAI/Anthropic APIs
+- **`LLMClient.ts`**: AI integration with user-specific chat history management
 - **`Menu.ts`**: Application menu and keyboard shortcuts
+- **`UserAccountManager.ts`**: Core user account management with session isolation
+- **`UserDataManager.ts`**: User-specific data persistence and file system operations
+- **`ActivityCollector.ts`**: Buffered collection and processing of user activity data
+- **`ActivityTypes.ts`**: Comprehensive type definitions for 13 activity categories
 
 #### Renderer Processes
 The application runs three types of renderer processes:
@@ -79,8 +83,8 @@ The application runs three types of renderer processes:
 #### Preload Scripts Security Layer
 Two preload scripts (`src/preload/`) provide secure IPC bridges:
 
-- **`topbar.ts`**: Exposes tab management and navigation APIs
-- **`sidebar.ts`**: Exposes AI chat and content extraction APIs
+- **`topbar.ts`**: Exposes tab management, navigation, and user account management APIs
+- **`sidebar.ts`**: Exposes AI chat, content extraction, and user account status APIs
 
 ---
 
@@ -95,7 +99,8 @@ Two preload scripts (`src/preload/`) provide secure IPC bridges:
 
 2. **Window Setup** (`Window.ts`):
    ```typescript
-   new BaseWindow() → new TopBar() → new SideBar() → createTab()
+   new BaseWindow() → new UserDataManager() → new UserAccountManager() → 
+   new TopBar() → new SideBar() → createTab()
    ```
 
 3. **Component Loading**:
@@ -141,6 +146,223 @@ Streaming response → WebContents.send("chat-response")
     ↓
 Sidebar updates UI with AI response
 ```
+
+---
+
+## Activity Tracking Architecture
+
+### Overview
+The activity tracking system implements comprehensive user behavior monitoring through a multi-layered architecture that captures, buffers, and persists detailed interaction data while maintaining performance and privacy.
+
+### Component Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Main Process                             │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────┐  │
+│  │ActivityCollector│  │  ActivityTypes  │  │UserDataMgr  │  │
+│  │   (Buffering)   │  │ (Type Defs)     │  │(Persistence)│  │
+│  └─────────────────┘  └─────────────────┘  └─────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+                            │
+           ┌────────────────┼────────────────┐
+           │                │                │
+    ┌──────▼──────┐  ┌──────▼──────┐  ┌──────▼──────┐
+    │ Tab Process │  │   TopBar    │  │   Sidebar   │
+    │ (Activity   │  │ (Navigation │  │ (Chat       │
+    │  Injection) │  │  Tracking)  │  │  Tracking)  │
+    └─────────────┘  └─────────────┘  └─────────────┘
+```
+
+### Activity Collection Flow
+
+#### Data Collection Pipeline
+1. **Event Capture**: Browser events and injected page scripts capture user interactions
+2. **Data Structuring**: Raw events converted to typed ActivityData structures
+3. **Buffered Collection**: ActivityCollector buffers activities in memory
+4. **Periodic Flushing**: Buffer automatically flushed every 30 seconds or when full
+5. **Persistent Storage**: UserDataManager saves to daily JSON files per user
+
+#### Activity Categories
+The system tracks 13 comprehensive activity types:
+- **Navigation**: `page_visit`, `navigation_event`, `tab_action`
+- **Interaction**: `click_event`, `scroll_event`, `keyboard_input`, `mouse_movement`
+- **Context**: `focus_change`, `page_interaction`, `content_extraction`
+- **Features**: `search_query`, `chat_interaction`, `form_interaction`
+
+#### Performance Optimizations
+- **Buffered Collection**: Memory buffer (50 items) prevents I/O bottlenecks
+- **Throttled Events**: Mouse movements (100ms), scrolls (500ms), keyboard (2s debounce)
+- **Daily File Rotation**: Separate JSON files per day for efficient access
+- **Session Grouping**: Activities grouped by session ID for analysis
+
+### Integration Points
+
+#### Tab-Level Integration
+```typescript
+// Window.ts - Activity collector per tab
+createTab(url) → {
+  const activityCollector = new ActivityCollector(userDataManager, currentUser.id)
+  tab.setActivityCallback((activity) => activityCollector.collectActivity(activity))
+}
+```
+
+#### In-Page Monitoring
+```typescript
+// Tab.ts - Inject monitoring scripts
+webContents.on('did-finish-load', () => {
+  injectActivityScript() // Monitors clicks, scrolls, keyboard
+})
+```
+
+#### Chat System Integration
+```typescript
+// LLMClient.ts - Track AI interactions
+sendChatMessage(request) → {
+  activityCollector.collectActivity('chat_interaction', {
+    userMessage: request.message,
+    contextUrl: activeTab?.url,
+    conversationLength: messages.length
+  })
+}
+```
+
+### Data Storage Architecture
+
+#### File Structure
+```
+users/user-data/{userId}/raw-activity/
+├── 2025-09-29.json    # Daily activity logs
+├── 2025-09-30.json    # Automatic file rotation
+└── 2025-10-01.json    # One file per day
+```
+
+#### Activity Record Schema
+```typescript
+interface RawActivityData {
+  id: string;           // Unique activity identifier
+  userId: string;       // User account isolation
+  timestamp: Date;      // Precise timing
+  sessionId: string;    // Browser session grouping
+  type: ActivityType;   // One of 13 activity categories
+  data: any;           // Type-specific payload
+}
+```
+
+### Privacy & Security
+
+#### User Isolation
+- Complete activity separation between user accounts
+- Guest user activities cleared on app restart
+- No cross-user data leakage possible
+
+#### Local-Only Storage
+- All activity data stored locally
+- No external transmission or cloud storage
+- User maintains complete control over data
+
+#### Session Management
+- Activities grouped by browser session
+- Session IDs prevent cross-session correlation attacks
+- Automatic session rotation on app restart
+
+---
+
+## User Account Management Architecture
+
+### Overview
+Blueberry Browser provides complete user isolation through a sophisticated account management system. Each user gets their own session partition, data storage, chat history, and tab management, ensuring complete privacy between users.
+
+### Key Components
+
+#### UserAccountManager
+- **Purpose**: Core user account logic and switching
+- **Features**:
+  - Guest user (always fresh, like incognito mode)
+  - User persistence across app restarts  
+  - Tab management during user switching
+  - Session partition isolation
+  - Maximum 10 users limit
+
+#### UserDataManager
+- **Purpose**: File system operations and data persistence
+- **Features**:
+  - User-specific chat history
+  - Tab state persistence
+  - User preferences (dummy interfaces for now)
+  - Browsing history (dummy interfaces for now)
+  - Behavioral profiles (dummy interfaces for now)
+
+### User Account Flow
+
+#### User Switching with Tab Management
+```
+User clicks account switcher → UI calls switchUser(userId, options)
+    ↓
+UserAccountManager.switchUser():
+    - Save current user's chat history if needed
+    - Set new currentUserId
+    - Handle tab switching based on options
+    ↓
+Window.switchUser():
+    - If keepCurrentTabs: reload all tabs with new session partition
+    - If not: close current tabs, load user's saved tabs
+    ↓
+LLMClient.handleUserSwitch():
+    - Load new user's chat history
+    - Update UI with user-specific messages
+    ↓
+EventManager.broadcastUserChange():
+    - Notify all renderer processes of user change
+```
+
+#### Session Partitioning
+Each user gets a unique Electron session partition:
+```typescript
+const sessionPartition = `persist:user-${userId}`;
+// Guest user: "persist:guest"
+```
+
+This isolates:
+- Cookies and localStorage
+- Cache and IndexedDB
+- Service Workers
+- Network requests and responses
+
+#### Data Storage Structure
+```
+userData/
+├── users/
+│   ├── accounts.json              # All user accounts metadata  
+│   ├── current-user.json          # Last active non-guest user
+│   └── user-data/
+│       ├── guest/                 # Always cleared on startup
+│       │   ├── chat-history.json
+│       │   └── tabs.json
+│       ├── user-123/
+│       │   ├── chat-history.json
+│       │   ├── tabs.json
+│       │   ├── preferences.json
+│       │   ├── browsing-history.json
+│       │   └── behavioral-profile.json
+│       └── user-456/
+│           └── ... (same structure)
+└── Sessions/                      # Electron session data (automatic)
+    ├── guest/                     # Guest session partition
+    ├── user-123/                  # User session partition
+    └── user-456/
+```
+
+### Guest User Behavior
+- **Always Fresh**: Guest user data is cleared on every app startup
+- **Incognito-like**: No persistence of browsing data, cookies, or chat history
+- **Always Available**: Guest user is always present for immediate browsing
+- **Tab Management**: Guest user tabs are never saved between sessions
+
+### User Persistence
+- **Startup Behavior**: If a non-guest user was active last time, they become the current user
+- **Guest Availability**: Guest user is always created fresh and available for switching
+- **Tab Restoration**: Users can choose to keep current tabs or load their saved tabs when switching
 
 ---
 

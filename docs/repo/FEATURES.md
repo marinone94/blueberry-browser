@@ -483,6 +483,270 @@ This document traces the complete code execution paths for each major feature in
 
 ---
 
+## User Account Management
+
+### User Account Creation
+
+**User Action**: Create new user account with name, email (optional), birthday (optional)
+
+**Complete Flow**:
+
+1. **UI Interaction**: User fills account creation form
+2. **Validation**: Name uniqueness and email format validation  
+3. **IPC Call**: `topBarAPI.createUser(userData)`
+4. **UserAccountManager**: Creates user with UUID and session partition
+5. **Data Persistence**: User saved to `accounts.json`
+6. **Response**: Success/error returned to UI
+
+**Key Functions Involved**:
+- `UserAccountManager.createUser()` - Core user creation logic
+- `UserAccountManager.validateUserName()` - Name uniqueness check
+- `UserDataManager.ensureUserDataDir()` - Create user data directory
+
+### User Switching with Tab Management
+
+**User Action**: Switch to different user account
+
+**Complete Flow**:
+
+1. **UI Interaction**: User selects different account from switcher
+2. **Tab Management Decision**: Keep current tabs or load user's saved tabs
+3. **IPC Call**: `topBarAPI.switchUser(userId, {keepCurrentTabs: boolean})`
+
+4. **UserAccountManager.switchUser()**:
+   ```typescript
+   if (options.keepCurrentTabs) {
+     // Save current tabs to new user
+     await saveCurrentUserTabs(currentTabs)
+   }
+   switchUser(userId) // Change current user
+   ```
+
+5. **Window.switchUser()**:
+   ```typescript
+   if (options.keepCurrentTabs) {
+     // Reload all tabs with new session partition
+     await reloadAllTabsWithNewSession()
+   } else {
+     // Close current tabs, load user's saved tabs
+     await closeAllTabs()
+     loadUserTabs(switchResult.tabsToLoad)
+   }
+   ```
+
+6. **LLMClient.handleUserSwitch()**:
+   ```typescript
+   // Save current user's chat history
+   await saveMessagesForUser(previousUserId)
+   // Load new user's chat history  
+   messages = await loadChatHistory(newUserId)
+   ```
+
+7. **EventManager.broadcastUserChange()**: Notify all renderers of user change
+
+**Key Functions Involved**:
+- `UserAccountManager.switchUser()` - Core switching logic
+- `Window.switchUser()` - Tab management during switch
+- `Window.reloadAllTabsWithNewSession()` - Session partition update
+- `LLMClient.handleUserSwitch()` - Chat history switching
+- `EventManager.broadcastUserChange()` - UI synchronization
+
+### Guest User Management
+
+**Purpose**: Provide incognito-like browsing experience
+
+**Guest User Characteristics**:
+- Always available and fresh on startup
+- No data persistence between sessions
+- Session partition: `persist:guest`
+- Cannot be deleted
+- Data cleared on every app restart
+
+**Implementation** (`UserAccountManager`):
+```typescript
+private static readonly GUEST_USER: UserAccount = {
+  id: 'guest',
+  name: 'Guest User', 
+  email: '',
+  isGuest: true,
+  sessionPartition: 'persist:guest'
+}
+
+async setupGuestUser() {
+  // Always clear guest data for fresh start
+  await userDataManager.clearUserData('guest')
+  // Create fresh guest user
+  users.set('guest', { ...GUEST_USER, createdAt: new Date() })
+}
+```
+
+### Session Isolation
+
+**Purpose**: Complete privacy between users
+
+**Implementation**: Each user gets unique Electron session partition
+```typescript
+// Tab.ts constructor
+new WebContentsView({
+  webPreferences: {
+    partition: sessionPartition // e.g., "persist:user-123"
+  }
+})
+```
+
+**Isolation Includes**:
+- Cookies and localStorage
+- Cache and IndexedDB  
+- Service Workers
+- Network requests/responses
+- Extensions (if any)
+
+---
+
+## Browsing History Management
+
+### Per-User History Tracking
+
+**Purpose**: Track and manage browsing history separately for each user account
+
+**Complete Flow**:
+
+1. **History Recording** (`Tab.ts`):
+   ```typescript
+   recordHistoryEntry() → {
+     if (historyCallback && _url && _isVisible && !isSystemPage) {
+       historyCallback({
+         url: _url,
+         title: _title || _url, 
+         visitedAt: new Date(),
+         favicon: extractedFavicon
+       })
+     }
+   }
+   ```
+
+2. **Navigation Event Triggers**:
+   - `did-navigate` - Page navigation
+   - `did-navigate-in-page` - Hash/state changes
+   - `did-finish-load` - Page load completion
+   - `show()` - Tab becomes active (updates timestamp)
+
+3. **History Storage** (`UserDataManager.ts`):
+   ```typescript
+   addHistoryEntry(userId, entry) → {
+     const history = await loadBrowsingHistory(userId)
+     
+     // Deduplication: Update existing entry if same URL within 1 hour
+     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000)
+     const existingIndex = history.findIndex(h => 
+       h.url === entry.url && new Date(h.visitedAt) > oneHourAgo
+     )
+     
+     if (existingIndex >= 0) {
+       history[existingIndex].visitedAt = entry.visitedAt
+       history[existingIndex].title = entry.title
+     } else {
+       history.unshift({
+         id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+         ...entry
+       })
+     }
+     
+     // Keep only last 1000 entries
+     if (history.length > 1000) history.splice(1000)
+     
+     await saveBrowsingHistory(userId, history)
+   }
+   ```
+
+### History UI Features
+
+**User Action**: Click clock icon in sidebar to view history
+
+**Complete Flow**:
+
+1. **History Context** (`HistoryContext.tsx`):
+   ```typescript
+   refreshHistory() → {
+     const historyData = await window.sidebarAPI.getBrowsingHistory()
+     const processedHistory = historyData
+       .map(entry => ({ ...entry, visitedAt: new Date(entry.visitedAt) }))
+       .sort((a, b) => b.visitedAt.getTime() - a.visitedAt.getTime()) // Newest first
+     setHistory(processedHistory)
+   }
+   ```
+
+2. **History Display** (`History.tsx`):
+   - **3-Column Layout**: Favicon | Title + Domain | Time + Remove
+   - **Smart Time Formatting**: "Just now", "5m ago", "2h ago", "Yesterday"
+   - **Real-time Search**: Filter by title or URL with 300ms debounce
+   - **Manual Refresh**: Button to reload history data
+   - **Clear All**: Confirmation dialog for bulk deletion
+
+3. **Smart Navigation** (`EventManager.ts`):
+   ```typescript
+   ipcMain.handle("navigate-from-history", async (_, url: string) => {
+     // Check if URL already open in existing tab
+     const existingTab = mainWindow.allTabs.find(tab => tab.url === url)
+     
+     if (existingTab) {
+       // Activate existing tab instead of creating duplicate
+       mainWindow.switchActiveTab(existingTab.id)
+       return { id: existingTab.id, title: existingTab.title, url, wasExisting: true }
+     } else {
+       // Create new tab
+       const newTab = mainWindow.createTab(url)
+       mainWindow.switchActiveTab(newTab.id)
+       return { id: newTab.id, title: newTab.title, url, wasExisting: false }
+     }
+   })
+   ```
+
+### User Switching Integration
+
+**Automatic History Refresh**: History automatically refreshes when switching users
+
+**Implementation** (`HistoryContext.tsx`):
+```typescript
+useEffect(() => {
+  const handleUserChange = () => {
+    console.log('User changed - refreshing history')
+    refreshHistory()
+  }
+  
+  window.sidebarAPI.onUserChanged(handleUserChange)
+  return () => window.sidebarAPI.removeUserChangedListener()
+}, [refreshHistory])
+```
+
+**Data Isolation**: Each user's history stored in separate JSON files:
+- `users/user-data/{userId}/browsing-history.json`
+- Complete privacy between user accounts
+- History persists across sessions
+
+### Search and Management
+
+**Search Features**:
+- Real-time search by title or URL
+- Results sorted by recency
+- Debounced for performance (300ms)
+- Clear search to return to full history
+
+**Management Actions**:
+- **Individual Removal**: X button on hover
+- **Bulk Clear**: Confirmation dialog with 3-second timeout
+- **Manual Refresh**: Force reload history data
+- **Smart Navigation**: Reuse existing tabs when possible
+
+**Key Functions Involved**:
+- `Tab.recordHistoryEntry()` - Capture navigation events
+- `UserDataManager.addHistoryEntry()` - Store with deduplication
+- `HistoryContext.refreshHistory()` - Load and sort for UI
+- `History.tsx` - Complete UI with search and management
+- `EventManager.navigate-from-history` - Smart tab navigation
+
+---
+
 ## Advanced Browser Features
 
 ### JavaScript Execution in Tabs
@@ -606,5 +870,254 @@ const createTab = async (url?: string) => {
 - Invalid URLs convert to Google searches
 - Network errors display in tab content
 - Back/forward buttons disabled when no history available
+
+---
+
+## User Activity Tracking System
+
+### Comprehensive Activity Collection
+
+**Purpose**: Track detailed user behavior across all interactions to build comprehensive user profiles and enable proactive browsing capabilities
+
+**Complete Flow**:
+
+1. **Activity Monitoring Initialization** (`Window.ts`):
+   ```typescript
+   createTab(url) → {
+     const activityCollector = new ActivityCollector(userDataManager, currentUser.id)
+     tab.setActivityCallback((activity) => activityCollector.collectActivity(activity))
+   }
+   ```
+
+2. **Tab-Level Activity Tracking** (`Tab.ts`):
+   ```typescript
+   // Page navigation tracking
+   webContents.on('did-navigate', () => {
+     recordActivity('page_visit', {
+       url, title, loadTime, referrer, userAgent
+     })
+   })
+   
+   // User interaction monitoring
+   webContents.on('did-finish-load', () => {
+     injectActivityScript() // Monitor clicks, scrolls, keyboard input
+   })
+   
+   // Focus/blur tracking
+   show() → recordActivity('focus_change', {focusType: 'tab_focus'})
+   hide() → recordActivity('focus_change', {focusType: 'tab_blur'})
+   ```
+
+3. **In-Page Activity Monitoring** (Injected Script):
+   ```javascript
+   // Click tracking
+   document.addEventListener('click', (e) => {
+     window.electronAPI.reportActivity('click_event', {
+       x: e.clientX, y: e.clientY,
+       elementTag: e.target.tagName,
+       elementClass: e.target.className,
+       clickType: e.button === 0 ? 'left' : 'right'
+     })
+   })
+   
+   // Scroll depth monitoring
+   window.addEventListener('scroll', throttle(() => {
+     window.electronAPI.reportActivity('scroll_event', {
+       scrollTop: window.scrollY,
+       viewportHeight: window.innerHeight,
+       documentHeight: document.body.scrollHeight
+     })
+   }, 500))
+   
+   // Keyboard input tracking
+   document.addEventListener('keydown', () => {
+     keyboardEventCount++
+     // Debounced reporting every 2 seconds
+   })
+   ```
+
+4. **Activity Data Buffering** (`ActivityCollector.ts`):
+   ```typescript
+   collectActivity(type, data) → {
+     const activity = {
+       id: generateId(),
+       userId: this.userId,
+       timestamp: new Date(),
+       sessionId: this.sessionId,
+       type,
+       data
+     }
+     
+     this.buffer.push(activity)
+     
+     // Flush buffer when full or on timer
+     if (buffer.length >= BUFFER_SIZE) {
+       flushActivities()
+     }
+   }
+   
+   flushActivities() → {
+     userDataManager.saveRawActivityData(userId, buffer)
+     buffer.length = 0
+   }
+   ```
+
+5. **Persistent Storage** (`UserDataManager.ts`):
+   ```typescript
+   saveRawActivityData(userId, activities) → {
+     const today = new Date().toISOString().split('T')[0]
+     const filePath = `users/user-data/${userId}/raw-activity/${today}.json`
+     
+     // Append to daily file
+     const existingData = await readJsonFile(filePath) || []
+     existingData.push(...activities)
+     await writeJsonFile(filePath, existingData)
+   }
+   ```
+
+### Activity Types Tracked
+
+**13 Comprehensive Activity Categories**:
+
+1. **Page Visits**: URL, title, load time, referrer tracking
+2. **Page Interactions**: Time on page, scroll depth, click counts, exit methods
+3. **Click Events**: Precise coordinates, element details, click types
+4. **Scroll Events**: Direction, speed, viewport position tracking
+5. **Keyboard Input**: Key counts, input contexts, typing patterns
+6. **Mouse Movements**: Movement paths, speeds, interaction patterns
+7. **Search Queries**: Query analysis, search engine detection
+8. **Navigation Events**: Navigation methods, load times, URL transitions
+9. **Tab Actions**: Tab lifecycle events, tab switching patterns
+10. **Focus Changes**: Window and tab focus patterns
+11. **Chat Interactions**: AI chat usage, message patterns, context
+12. **Content Extraction**: Page content analysis, media detection
+13. **Form Interactions**: Form usage patterns, completion rates
+
+### Chat Integration Tracking
+
+**User Action**: Send message in AI chat interface
+
+**Activity Tracking Flow**:
+
+1. **Chat Message Capture** (`LLMClient.ts`):
+   ```typescript
+   sendChatMessage(request) → {
+     // Record chat interaction
+     activityCollector.collectActivity('chat_interaction', {
+       userMessage: request.message,
+       messageLength: request.message.length,
+       contextUrl: activeTab?.url,
+       conversationLength: messages.length
+     })
+     
+     // Process AI response and track response time
+     const startTime = Date.now()
+     await streamResponse(contextMessages, messageId)
+     const responseTime = Date.now() - startTime
+     
+     // Update activity with response time
+     activityCollector.collectActivity('chat_interaction', {
+       responseTime,
+       conversationLength: messages.length + 1
+     })
+   }
+   ```
+
+2. **Content Context Tracking**:
+   ```typescript
+   // Automatically track content extraction for AI context
+   const pageText = await activeTab.getTabText()
+   const screenshot = await activeTab.screenshot()
+   
+   activityCollector.collectActivity('content_extraction', {
+     url: activeTab.url,
+     title: activeTab.title,
+     contentType: detectContentType(pageText),
+     textLength: pageText.length,
+     hasImages: containsImages(pageText),
+     language: detectLanguage(pageText)
+   })
+   ```
+
+### Data Storage Structure
+
+**Daily Activity Files**:
+```
+users/user-data/{userId}/raw-activity/
+├── 2025-09-29.json    # Daily activity logs
+├── 2025-09-30.json
+└── 2025-10-01.json
+```
+
+**Activity Record Format**:
+```json
+{
+  "id": "activity-1759172738321-1uw4ddyqc",
+  "userId": "07bb0c68-fc82-45e2-8d7b-8f5df9d31044", 
+  "timestamp": "2025-09-29T19:05:38.321Z",
+  "sessionId": "session-1759172738310-xjo4mdj1c",
+  "type": "click_event",
+  "data": {
+    "url": "https://example.com",
+    "x": 245,
+    "y": 156,
+    "elementTag": "BUTTON",
+    "elementClass": "submit-btn",
+    "clickType": "left",
+    "isDoubleClick": false
+  }
+}
+```
+
+### Performance Optimizations
+
+**Buffered Collection**:
+- Activities buffered in memory (default: 50 items)
+- Automatic flushing every 30 seconds
+- Immediate flush on buffer full or app close
+
+**Throttled Event Monitoring**:
+- Mouse movements: 100ms throttle
+- Scroll events: 500ms throttle  
+- Keyboard events: Debounced reporting every 2 seconds
+
+**Efficient Storage**:
+- Daily JSON files for easy analysis
+- Compressed data structures
+- Automatic cleanup of old activity files
+
+### User Privacy & Control
+
+**Per-User Isolation**:
+- Complete activity separation between user accounts
+- Guest user activities cleared on app restart
+- Session-based activity grouping
+
+**Data Access Patterns**:
+- Local storage only - no external transmission
+- Structured data format for future analysis
+- User-controlled data retention policies
+
+### Key Functions Involved
+
+**Activity Collection**:
+- `ActivityCollector.collectActivity()` - Core activity recording
+- `Tab.recordActivity()` - Tab-level activity capture  
+- `Tab.injectActivityScript()` - In-page monitoring setup
+- `UserDataManager.saveRawActivityData()` - Persistent storage
+
+**Data Management**:
+- `ActivityCollector.flushActivities()` - Buffer management
+- `UserDataManager.getRawActivityData()` - Data retrieval
+- `UserDataManager.cleanupOldActivity()` - Data maintenance
+
+**Integration Points**:
+- `Window.createTab()` - Activity collector initialization
+- `LLMClient.sendChatMessage()` - Chat interaction tracking
+- `Tab event handlers` - Navigation and interaction capture
+
+This comprehensive activity tracking system provides the foundation for building detailed user profiles and enabling advanced proactive browsing capabilities while maintaining strict privacy and performance standards.
+
+---
 
 This comprehensive feature analysis demonstrates how Blueberry Browser coordinates multiple processes and technologies to deliver a seamless, AI-enhanced browsing experience.

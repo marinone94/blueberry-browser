@@ -226,20 +226,86 @@ Dark Mode: dark-mode-changed (→ broadcast to all processes)
 
 ## AI Integration
 
+### 📄 src/main/UserAccountManager.ts
+**Purpose**: Core user account management and session isolation
+
+**Key Classes**:
+- `UserAccountManager`: Manages user accounts, switching, and session partitioning
+
+**Key Methods**:
+- `createUser()`: Create new user with validation and UUID generation
+- `switchUser()`: Switch between users with tab management options
+- `deleteUser()`: Remove user and cleanup data
+- `getCurrentUser()`, `getAllUsers()`: User access methods
+- `getCurrentSessionPartition()`: Get session partition for current user
+
+**Key Features**:
+- Guest user (always fresh, incognito-like)
+- User persistence across app restarts
+- Session partition isolation per user
+- Tab management during user switching
+- Maximum 10 users limit
+
+**Dependencies**:
+- **Uses**: UserDataManager for data persistence, uuid for ID generation
+- **Used by**: Window (user switching), EventManager (IPC handlers), LLMClient (chat history)
+
+**Data Storage**:
+- `accounts.json`: User metadata
+- `current-user.json`: Last active non-guest user
+- Session partitions: `persist:user-${userId}` or `persist:guest`
+
+### 📄 src/main/UserDataManager.ts
+**Purpose**: User-specific data persistence and file system operations
+
+**Key Classes**:
+- `UserDataManager`: Handles file operations for user-isolated data
+
+**Key Methods**:
+- `saveChatHistory()`, `loadChatHistory()`: User-specific chat persistence
+- `saveUserTabs()`, `loadUserTabs()`: Tab state management
+- `savePreferences()`, `loadPreferences()`: User preferences (dummy interfaces)
+- `clearUserData()`: Complete user data removal
+- `getUserDataSize()`: Storage usage tracking
+
+**Key Features**:
+- Complete user data isolation
+- Automatic directory creation
+- Error handling and graceful degradation
+- Support for multiple data types (chat, tabs, preferences, etc.)
+
+**Dependencies**:
+- **Uses**: Node.js fs/promises, Electron app.getPath()
+- **Used by**: UserAccountManager, LLMClient (chat history), Window (tab persistence)
+
+**Storage Structure**:
+```
+userData/users/user-data/
+├── user-123/
+│   ├── chat-history.json
+│   ├── tabs.json
+│   ├── preferences.json
+│   └── ...
+└── guest/ (cleared on startup)
+```
+
 ### 📄 src/main/LLMClient.ts
-**Purpose**: AI language model integration with context awareness
+**Purpose**: AI language model integration with user-specific chat history
 
 **Key Classes**:
 - `LLMClient`: Manages OpenAI/Anthropic API communication with streaming
 
 **Key Methods**:
-- `sendChatMessage(request: ChatRequest)`: Main AI interaction entry point
+- `sendChatMessage(request: ChatRequest)`: Main AI interaction entry point with user-specific history
 - `streamResponse()`: Handles AI response streaming with real-time updates
 - `prepareMessagesWithContext()`: Builds conversation with page context
 - `buildSystemPrompt()`: Creates context-aware system message
+- `handleUserSwitch()`: Switch chat history when user account changes
+- `loadCurrentUserMessages()`: Load chat history for current user
+- `saveCurrentUserMessages()`: Persist chat history for current user
 
 **Dependencies**:
-- **Uses**: ai SDK (streamText), @ai-sdk/openai, @ai-sdk/anthropic, Window (for screenshots/content)
+- **Uses**: ai SDK (streamText), @ai-sdk/openai, @ai-sdk/anthropic, Window (for screenshots/content), UserAccountManager (user switching), UserDataManager (chat history persistence)
 - **Used by**: SideBar class, EventManager (via chat IPC)
 
 **AI Provider Support**:
@@ -447,6 +513,60 @@ Dark Mode: dark-mode-changed (→ broadcast to all processes)
 **Dependencies**:
 - **Uses**: ChatContext, react-markdown, remark plugins, Lucide icons
 - **Used by**: SidebarApp
+
+#### 📄 src/renderer/sidebar/src/contexts/HistoryContext.tsx
+**Purpose**: React context for managing browsing history state and operations
+
+**Key Functions**:
+- `refreshHistory()`: Load and sort user's browsing history
+- `searchHistory()`: Filter history by title or URL with debouncing
+- `clearHistory()`: Remove all history entries for current user
+- `removeEntry()`: Delete individual history entry
+- `navigateToUrl()`: Navigate to URL (activates existing tab or creates new one)
+
+**State Management**:
+- `history`: Array of browsing history entries, sorted by recency
+- `isLoading`: Loading state for async operations
+- `searchQuery`: Current search filter text
+
+**User Integration**:
+- Automatically refreshes when user switches accounts
+- Listens to `onUserChanged` events from sidebar API
+- Proper cleanup of event listeners on unmount
+
+**Dependencies**:
+- **Uses**: window.sidebarAPI for IPC communication
+- **Used by**: History component, SidebarApp
+
+#### 📄 src/renderer/sidebar/src/components/History.tsx
+**Purpose**: Complete browsing history UI with search, management, and navigation
+
+**Key Components**:
+- `HistoryEntry`: Individual history item with favicon, title, domain, time, and remove button
+- `History`: Main history interface with search, actions, and scrollable list
+
+**Features**:
+- **3-Column Layout**: Favicon | Title + Domain | Timestamp + Remove
+- **Smart Time Formatting**: "Just now", "5m ago", "2h ago", "Yesterday", "3 days ago"
+- **Real-time Search**: Filter by title or URL with 300ms debounce
+- **Manual Refresh**: Button to force reload history data
+- **Bulk Clear**: Confirmation dialog with 3-second auto-hide
+- **Smart Navigation**: Reuses existing tabs instead of creating duplicates
+
+**User Experience**:
+- Hover effects reveal remove buttons
+- Loading indicators during operations
+- Empty states for no history or no search results
+- Auto-close after successful navigation
+
+**Time Formatting Logic**:
+- Handles invalid dates and future dates gracefully
+- Calculates relative time differences accurately
+- Updates in real-time as entries age
+
+**Dependencies**:
+- **Uses**: HistoryContext, Lucide icons, common Button component
+- **Used by**: SidebarApp (conditionally rendered)
 
 ---
 

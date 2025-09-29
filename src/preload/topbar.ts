@@ -1,6 +1,14 @@
 import { contextBridge } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
 
+// Extended electronAPI with activity tracking
+const extendedElectronAPI = {
+  ...electronAPI,
+  // Activity reporting for injected scripts
+  reportActivity: (activityType: string, data: any) =>
+    electronAPI.ipcRenderer.send("report-activity", activityType, data),
+};
+
 // TopBar specific APIs
 const topBarAPI = {
   // Tab management
@@ -31,6 +39,33 @@ const topBarAPI = {
   // Sidebar
   toggleSidebar: () =>
     electronAPI.ipcRenderer.invoke("toggle-sidebar"),
+
+  // User Account Management
+  getUsers: () => electronAPI.ipcRenderer.invoke("get-users"),
+  getCurrentUser: () => electronAPI.ipcRenderer.invoke("get-current-user"),
+  createUser: (userData: {name: string, email?: string, birthday?: string}) =>
+    electronAPI.ipcRenderer.invoke("create-user", userData),
+  switchUser: (userId: string, options?: {keepCurrentTabs: boolean}) =>
+    electronAPI.ipcRenderer.invoke("switch-user", userId, options),
+  updateUser: (userId: string, updates: {name?: string, email?: string, birthday?: string}) =>
+    electronAPI.ipcRenderer.invoke("update-user", userId, updates),
+  deleteUser: (userId: string) =>
+    electronAPI.ipcRenderer.invoke("delete-user", userId),
+  getUserStats: () => electronAPI.ipcRenderer.invoke("get-user-stats"),
+  resetGuestUser: () => electronAPI.ipcRenderer.invoke("reset-guest-user"),
+  saveCurrentUserTabs: () => electronAPI.ipcRenderer.invoke("save-current-user-tabs"),
+  
+  // Communication with sidebar
+  sendToSidebar: (type: string, data?: any) => 
+    electronAPI.ipcRenderer.invoke("send-to-sidebar", type, data),
+  
+  // User change events
+  onUserChanged: (callback: (userData: any) => void) => {
+    electronAPI.ipcRenderer.on("user-changed", (_, userData) => callback(userData));
+  },
+  removeUserChangedListener: () => {
+    electronAPI.ipcRenderer.removeAllListeners("user-changed");
+  },
 };
 
 // Use `contextBridge` APIs to expose Electron APIs to
@@ -38,14 +73,14 @@ const topBarAPI = {
 // just add to the DOM global.
 if (process.contextIsolated) {
   try {
-    contextBridge.exposeInMainWorld("electron", electronAPI);
+    contextBridge.exposeInMainWorld("electronAPI", extendedElectronAPI);
     contextBridge.exposeInMainWorld("topBarAPI", topBarAPI);
   } catch (error) {
     console.error(error);
   }
 } else {
   // @ts-ignore (define in dts)
-  window.electron = electronAPI;
+  window.electronAPI = extendedElectronAPI;
   // @ts-ignore (define in dts)
   window.topBarAPI = topBarAPI;
 }

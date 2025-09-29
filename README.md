@@ -74,12 +74,29 @@ For comprehensive development guidance, see **[AGENTS.md](./AGENTS.md#developmen
 - Context-aware conversations
 - Error handling for API failures
 
+✅ **User Account Management**
+- Multiple user profiles with complete isolation
+- Per-user browsing history and chat data
+- Session partitioning for privacy
+- Guest mode for incognito browsing
+
+✅ **Browsing History**
+- Per-user history tracking with timestamps
+- Smart deduplication and 1000-entry limit
+- Search by title or URL with real-time filtering
+- Click-to-navigate with existing tab detection
+- Manual refresh and bulk clear options
+
 ### 🚧 Development Roadmap
 During the challenge, the development roadmap is documented in **[ROADMAP.md](./docs/ROADMAP.md)**.
 Currently .gitignored as the repo is public.
 
 ### 🔮 Future Vision
 Seamless UX on a browser designed from the ground up for the Intelligence Age.
+A browser that anticipates your needs, automate anything possible, and helps you stay on track when instant gratification needs kick in to dereail.
+Something that works for you, not to exploit you. Something that is always on your side.
+A true companion, something that you can trust:
+
 - **Proactive browsing**: Reminds, asks, acts proactively based on user behavior, preferences, etc.
 - **Access to email, calendar, etc.**: Access to email, calendar, notes, to improve proactivity and context awareness.
 - **Browser completion**: Predict next action or what to type, like Cursor's tab completion model.
