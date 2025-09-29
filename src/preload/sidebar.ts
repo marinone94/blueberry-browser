@@ -50,6 +50,16 @@ const sidebarAPI = {
   deleteUser: (userId: string) => electronAPI.ipcRenderer.invoke("delete-user", userId),
   getUserStats: () => electronAPI.ipcRenderer.invoke("get-user-stats"),
   
+  // History functionality
+  getBrowsingHistory: () => electronAPI.ipcRenderer.invoke("get-browsing-history"),
+  searchBrowsingHistory: (query: string, limit?: number) => 
+    electronAPI.ipcRenderer.invoke("search-browsing-history", query, limit),
+  clearBrowsingHistory: () => electronAPI.ipcRenderer.invoke("clear-browsing-history"),
+  removeHistoryEntry: (entryId: string) => 
+    electronAPI.ipcRenderer.invoke("remove-history-entry", entryId),
+  navigateFromHistory: (url: string) => 
+    electronAPI.ipcRenderer.invoke("navigate-from-history", url),
+  
   // Listen for messages from topbar
   onTopbarMessage: (callback: (type: string, data: any) => void) => {
     electronAPI.ipcRenderer.on("topbar-message", (_, type, data) => callback(type, data));

@@ -20,6 +20,14 @@ interface UserStats {
   hasGuestUser: boolean;
 }
 
+interface BrowsingHistoryEntry {
+  id: string;
+  url: string;
+  title: string;
+  visitedAt: Date;
+  favicon?: string;
+}
+
 interface UserData {
   currentUser: UserAccount | null;
   allUsers: UserAccount[];
@@ -52,6 +60,13 @@ interface SidebarAPI {
   updateUser: (userId: string, updates: {name?: string, email?: string, birthday?: string}) => Promise<UserAccount>;
   deleteUser: (userId: string) => Promise<void>;
   getUserStats: () => Promise<UserStats>;
+  
+  // History functionality
+  getBrowsingHistory: () => Promise<BrowsingHistoryEntry[]>;
+  searchBrowsingHistory: (query: string, limit?: number) => Promise<BrowsingHistoryEntry[]>;
+  clearBrowsingHistory: () => Promise<{success: boolean, error?: string}>;
+  removeHistoryEntry: (entryId: string) => Promise<{success: boolean, error?: string}>;
+  navigateFromHistory: (url: string) => Promise<{id: string, title: string, url: string, wasExisting: boolean}>;
   
   // Listen for messages from topbar
   onTopbarMessage: (callback: (type: string, data: any) => void) => void;

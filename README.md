@@ -80,6 +80,9 @@ Currently .gitignored as the repo is public.
 
 ### 🔮 Future Vision
 Seamless UX on a browser designed from the ground up for the Intelligence Age.
+A browser that anticipates your needs, automate anything possible, and helps you stay on track when instant gratification needs kick in to dereail.
+Something that works for you, not to exploit you. Something that is always on your side.
+A true companion, something that you can trust.
 - **Proactive browsing**: Reminds, asks, acts proactively based on user behavior, preferences, etc.
 - **Access to email, calendar, etc.**: Access to email, calendar, notes, to improve proactivity and context awareness.
 - **Browser completion**: Predict next action or what to type, like Cursor's tab completion model.

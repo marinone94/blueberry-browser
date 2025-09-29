@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
-import { ArrowUp, Plus } from 'lucide-react'
+import { ArrowUp, Plus, Clock } from 'lucide-react'
 import { useChat } from '../contexts/ChatContext'
 import { cn } from '@common/lib/utils'
 import { Button } from '@common/components/Button'
@@ -263,7 +263,11 @@ const ConversationTurnComponent: React.FC<{
 )
 
 // Main Chat Component
-export const Chat: React.FC = () => {
+interface ChatProps {
+    onShowHistory: () => void
+}
+
+export const Chat: React.FC<ChatProps> = ({ onShowHistory }) => {
     const { messages, isLoading, sendMessage, clearChat } = useChat()
     const scrollRef = useAutoScroll(messages)
 
@@ -292,18 +296,30 @@ export const Chat: React.FC = () => {
         <div className="flex flex-col h-full bg-background">
             {/* Messages Area */}
             <div className="flex-1 overflow-y-auto">
-                <div className="h-8 max-w-3xl mx-auto px-4">
+                <div className="h-8 max-w-3xl mx-auto px-4 flex items-center justify-between">
                     {/* New Chat Button - Floating */}
-                    {messages.length > 0 && (
-                        <Button
-                            onClick={clearChat}
-                            title="Start new chat"
-                            variant="ghost"
-                        >
-                            <Plus className="size-4" />
-                            New Chat
-                        </Button>
-                    )}
+                    <div className="flex-1">
+                        {messages.length > 0 && (
+                            <Button
+                                onClick={clearChat}
+                                title="Start new chat"
+                                variant="ghost"
+                            >
+                                <Plus className="size-4" />
+                                New Chat
+                            </Button>
+                        )}
+                    </div>
+                    
+                    {/* History Button - Always visible on the right */}
+                    <Button
+                        onClick={onShowHistory}
+                        title="View browsing history"
+                        variant="ghost"
+                        size="sm"
+                    >
+                        <Clock className="size-4" />
+                    </Button>
                 </div>
 
                 <div className="pb-4 relative max-w-3xl mx-auto px-4">

@@ -1,5 +1,5 @@
 import { BaseWindow, shell } from "electron";
-import { Tab } from "./Tab";
+import { Tab, type HistoryCallback } from "./Tab";
 import { TopBar } from "./TopBar";
 import { SideBar } from "./SideBar";
 import { UserAccountManager, type TabSwitchOptions } from "./UserAccountManager";
@@ -116,7 +116,18 @@ export class Window {
   createTab(url?: string): Tab {
     const tabId = `tab-${++this.tabCounter}`;
     const sessionPartition = this._userAccountManager.getCurrentSessionPartition();
-    const tab = new Tab(tabId, url, sessionPartition);
+    
+    // Create history callback
+    const historyCallback: HistoryCallback = (entry) => {
+      const currentUser = this._userAccountManager.getCurrentUser();
+      if (currentUser) {
+        this._userDataManager.addHistoryEntry(currentUser.id, entry).catch(error => {
+          console.error('Failed to save history entry:', error);
+        });
+      }
+    };
+    
+    const tab = new Tab(tabId, url, sessionPartition, historyCallback);
 
     // Add the tab's WebContentsView to the window
     this._baseWindow.contentView.addChildView(tab.view);

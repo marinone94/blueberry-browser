@@ -1,7 +1,9 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { ChatProvider } from './contexts/ChatContext'
+import { HistoryProvider } from './contexts/HistoryContext'
 import { UserAccountProvider, useUserAccount } from './contexts/UserAccountContext'
 import { Chat } from './components/Chat'
+import { History } from './components/History'
 import { AccountCreationModal } from './components/AccountCreationModal'
 import { UserProfileModal } from './components/UserProfileModal'
 import { AccountSwitcherModal } from './components/AccountSwitcherModal'
@@ -9,6 +11,7 @@ import { useDarkMode } from '@common/hooks/useDarkMode'
 
 const SidebarContent: React.FC = () => {
     const { isDarkMode } = useDarkMode()
+    const [currentView, setCurrentView] = useState<'chat' | 'history'>('chat')
     const { 
         showAccountCreation, 
         setShowAccountCreation, 
@@ -36,7 +39,11 @@ const SidebarContent: React.FC = () => {
     return (
         <>
             <div className="h-screen flex flex-col bg-background border-l border-border">
-                <Chat />
+                {currentView === 'chat' ? (
+                    <Chat onShowHistory={() => setCurrentView('history')} />
+                ) : (
+                    <History onClose={() => setCurrentView('chat')} />
+                )}
             </div>
 
             {/* Account Creation Modal */}
@@ -112,9 +119,11 @@ const SidebarContent: React.FC = () => {
 export const SidebarApp: React.FC = () => {
     return (
         <UserAccountProvider>
-            <ChatProvider>
-                <SidebarContent />
-            </ChatProvider>
+            <HistoryProvider>
+                <ChatProvider>
+                    <SidebarContent />
+                </ChatProvider>
+            </HistoryProvider>
         </UserAccountProvider>
     )
 }

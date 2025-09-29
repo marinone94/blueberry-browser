@@ -47,6 +47,10 @@ const topBarAPI = {
   resetGuestUser: () => electronAPI.ipcRenderer.invoke("reset-guest-user"),
   saveCurrentUserTabs: () => electronAPI.ipcRenderer.invoke("save-current-user-tabs"),
   
+  // Communication with sidebar
+  sendToSidebar: (type: string, data?: any) => 
+    electronAPI.ipcRenderer.invoke("send-to-sidebar", type, data),
+  
   // User change events
   onUserChanged: (callback: (userData: any) => void) => {
     electronAPI.ipcRenderer.on("user-changed", (_, userData) => callback(userData));

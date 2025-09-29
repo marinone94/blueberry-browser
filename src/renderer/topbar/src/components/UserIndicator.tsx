@@ -26,7 +26,7 @@ interface UserIndicatorProps {
  * - Opens account switcher when clicked
  */
 export const UserIndicator: React.FC<UserIndicatorProps> = ({ className }) => {
-  const { currentUser, setShowAccountSwitcher } = useUserAccount()
+  const { currentUser } = useUserAccount()
   const [isLoading, setIsLoading] = useState(true)
 
   // Set loading to false when we have user data
@@ -85,10 +85,14 @@ export const UserIndicator: React.FC<UserIndicatorProps> = ({ className }) => {
         "relative group cursor-pointer",
         className
       )}
-      onClick={() => {
-        console.log('UserIndicator clicked - showing account switcher')
-        // Show account switcher modal directly
-        setShowAccountSwitcher(true)
+      onClick={async () => {
+        console.log('UserIndicator clicked - sending message to sidebar')
+        try {
+          // Send message to sidebar to show account switcher modal
+          await window.topBarAPI.sendToSidebar('show-account-switcher')
+        } catch (error) {
+          console.error('Failed to send message to sidebar:', error)
+        }
       }}
       title={hoverText}
     >

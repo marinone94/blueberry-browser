@@ -25,6 +25,12 @@ export class EventManager {
     // User account events
     this.handleUserAccountEvents();
 
+    // History events
+    this.handleHistoryEvents();
+
+    // Inter-component communication events
+    this.handleCommunicationEvents();
+
     // Debug events
     this.handleDebugEvents();
   }
@@ -302,6 +308,67 @@ export class EventManager {
     // Save current user's tabs
     ipcMain.handle("save-current-user-tabs", async () => {
       await this.mainWindow.saveCurrentUserTabs();
+      return { success: true };
+    });
+  }
+
+  private handleHistoryEvents(): void {
+    // Get browsing history
+    ipcMain.handle("get-browsing-history", async () => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return [];
+      
+      return await this.mainWindow.userDataManager.loadBrowsingHistory(currentUser.id);
+    });
+
+    // Search browsing history
+    ipcMain.handle("search-browsing-history", async (_, query: string, limit?: number) => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return [];
+      
+      return await this.mainWindow.userDataManager.searchHistory(currentUser.id, query, limit);
+    });
+
+    // Clear browsing history
+    ipcMain.handle("clear-browsing-history", async () => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return { success: false, error: "No current user" };
+      
+      await this.mainWindow.userDataManager.clearBrowsingHistory(currentUser.id);
+      return { success: true };
+    });
+
+    // Remove single history entry
+    ipcMain.handle("remove-history-entry", async (_, entryId: string) => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return { success: false, error: "No current user" };
+      
+      await this.mainWindow.userDataManager.removeHistoryEntry(currentUser.id, entryId);
+      return { success: true };
+    });
+
+    // Navigate to URL from history (activate existing tab or create new one)
+    ipcMain.handle("navigate-from-history", async (_, url: string) => {
+      // Check if URL is already open in an existing tab
+      const existingTab = this.mainWindow.allTabs.find(tab => tab.url === url);
+      
+      if (existingTab) {
+        // Activate the existing tab
+        this.mainWindow.switchActiveTab(existingTab.id);
+        return { id: existingTab.id, title: existingTab.title, url: existingTab.url, wasExisting: true };
+      } else {
+        // Create a new tab
+        const newTab = this.mainWindow.createTab(url);
+        this.mainWindow.switchActiveTab(newTab.id);
+        return { id: newTab.id, title: newTab.title, url: newTab.url, wasExisting: false };
+      }
+    });
+  }
+
+  private handleCommunicationEvents(): void {
+    // Send message from topbar to sidebar
+    ipcMain.handle("send-to-sidebar", (_, type: string, data?: any) => {
+      this.mainWindow.sidebar.view.webContents.send("topbar-message", type, data);
       return { success: true };
     });
   }

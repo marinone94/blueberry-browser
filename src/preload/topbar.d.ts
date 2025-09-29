@@ -59,6 +59,9 @@ interface TopBarAPI {
   resetGuestUser: () => Promise<{success: boolean}>;
   saveCurrentUserTabs: () => Promise<{success: boolean}>;
   
+  // Communication with sidebar
+  sendToSidebar: (type: string, data?: any) => Promise<{success: boolean}>;
+  
   // User change events
   onUserChanged: (callback: (userData: UserData) => void) => void;
   removeUserChangedListener: () => void;

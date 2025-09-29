@@ -43,6 +43,7 @@ export interface UserTabState {
 export class UserDataManager {
   private readonly userDataPath: string;
   private readonly usersDir: string;
+  private readonly maxHistoryEntries: number = 1000;
 
   constructor() {
     this.userDataPath = app.getPath("userData");
@@ -157,14 +158,66 @@ export class UserDataManager {
   }
 
   /**
-   * Browsing History Management (dummy implementation for now)
+   * Browsing History Management
    */
+  async addHistoryEntry(userId: string, entry: Omit<BrowsingHistoryEntry, 'id'>): Promise<void> {
+    const history = await this.loadBrowsingHistory(userId);
+    
+    // Check if URL already exists in recent history (within last hour)
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const existingIndex = history.findIndex(h => 
+      h.url === entry.url && new Date(h.visitedAt) > oneHourAgo
+    );
+    
+    if (existingIndex >= 0) {
+      // Update existing entry with new timestamp
+      history[existingIndex].visitedAt = entry.visitedAt;
+      history[existingIndex].title = entry.title; // Update title in case it changed
+    } else {
+      // Add new entry
+      const newEntry: BrowsingHistoryEntry = {
+        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        ...entry
+      };
+      history.unshift(newEntry); // Add to beginning
+    }
+    
+    // Keep only last maxHistoryEntries entries
+    if (this.maxHistoryEntries && history.length > this.maxHistoryEntries) {
+      history.splice(this.maxHistoryEntries);
+    }
+    
+    await this.saveBrowsingHistory(userId, history);
+  }
+
   async saveBrowsingHistory(userId: string, history: BrowsingHistoryEntry[]): Promise<void> {
     await this.saveUserFile(userId, "browsing-history.json", history);
   }
 
   async loadBrowsingHistory(userId: string): Promise<BrowsingHistoryEntry[]> {
     return await this.loadUserFile(userId, "browsing-history.json", []);
+  }
+
+  async clearBrowsingHistory(userId: string): Promise<void> {
+    await this.saveBrowsingHistory(userId, []);
+  }
+
+  async removeHistoryEntry(userId: string, entryId: string): Promise<void> {
+    const history = await this.loadBrowsingHistory(userId);
+    const filteredHistory = history.filter(entry => entry.id !== entryId);
+    await this.saveBrowsingHistory(userId, filteredHistory);
+  }
+
+  async searchHistory(userId: string, query: string, limit: number = 50): Promise<BrowsingHistoryEntry[]> {
+    const history = await this.loadBrowsingHistory(userId);
+    const searchTerm = query.toLowerCase();
+    
+    return history
+      .filter(entry => 
+        entry.title.toLowerCase().includes(searchTerm) || 
+        entry.url.toLowerCase().includes(searchTerm)
+      )
+      .slice(0, limit);
   }
 
   /**
