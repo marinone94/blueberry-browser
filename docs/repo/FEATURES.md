@@ -603,6 +603,150 @@ new WebContentsView({
 
 ---
 
+## Browsing History Management
+
+### Per-User History Tracking
+
+**Purpose**: Track and manage browsing history separately for each user account
+
+**Complete Flow**:
+
+1. **History Recording** (`Tab.ts`):
+   ```typescript
+   recordHistoryEntry() → {
+     if (historyCallback && _url && _isVisible && !isSystemPage) {
+       historyCallback({
+         url: _url,
+         title: _title || _url, 
+         visitedAt: new Date(),
+         favicon: extractedFavicon
+       })
+     }
+   }
+   ```
+
+2. **Navigation Event Triggers**:
+   - `did-navigate` - Page navigation
+   - `did-navigate-in-page` - Hash/state changes
+   - `did-finish-load` - Page load completion
+   - `show()` - Tab becomes active (updates timestamp)
+
+3. **History Storage** (`UserDataManager.ts`):
+   ```typescript
+   addHistoryEntry(userId, entry) → {
+     const history = await loadBrowsingHistory(userId)
+     
+     // Deduplication: Update existing entry if same URL within 1 hour
+     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000)
+     const existingIndex = history.findIndex(h => 
+       h.url === entry.url && new Date(h.visitedAt) > oneHourAgo
+     )
+     
+     if (existingIndex >= 0) {
+       history[existingIndex].visitedAt = entry.visitedAt
+       history[existingIndex].title = entry.title
+     } else {
+       history.unshift({
+         id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+         ...entry
+       })
+     }
+     
+     // Keep only last 1000 entries
+     if (history.length > 1000) history.splice(1000)
+     
+     await saveBrowsingHistory(userId, history)
+   }
+   ```
+
+### History UI Features
+
+**User Action**: Click clock icon in sidebar to view history
+
+**Complete Flow**:
+
+1. **History Context** (`HistoryContext.tsx`):
+   ```typescript
+   refreshHistory() → {
+     const historyData = await window.sidebarAPI.getBrowsingHistory()
+     const processedHistory = historyData
+       .map(entry => ({ ...entry, visitedAt: new Date(entry.visitedAt) }))
+       .sort((a, b) => b.visitedAt.getTime() - a.visitedAt.getTime()) // Newest first
+     setHistory(processedHistory)
+   }
+   ```
+
+2. **History Display** (`History.tsx`):
+   - **3-Column Layout**: Favicon | Title + Domain | Time + Remove
+   - **Smart Time Formatting**: "Just now", "5m ago", "2h ago", "Yesterday"
+   - **Real-time Search**: Filter by title or URL with 300ms debounce
+   - **Manual Refresh**: Button to reload history data
+   - **Clear All**: Confirmation dialog for bulk deletion
+
+3. **Smart Navigation** (`EventManager.ts`):
+   ```typescript
+   ipcMain.handle("navigate-from-history", async (_, url: string) => {
+     // Check if URL already open in existing tab
+     const existingTab = mainWindow.allTabs.find(tab => tab.url === url)
+     
+     if (existingTab) {
+       // Activate existing tab instead of creating duplicate
+       mainWindow.switchActiveTab(existingTab.id)
+       return { id: existingTab.id, title: existingTab.title, url, wasExisting: true }
+     } else {
+       // Create new tab
+       const newTab = mainWindow.createTab(url)
+       mainWindow.switchActiveTab(newTab.id)
+       return { id: newTab.id, title: newTab.title, url, wasExisting: false }
+     }
+   })
+   ```
+
+### User Switching Integration
+
+**Automatic History Refresh**: History automatically refreshes when switching users
+
+**Implementation** (`HistoryContext.tsx`):
+```typescript
+useEffect(() => {
+  const handleUserChange = () => {
+    console.log('User changed - refreshing history')
+    refreshHistory()
+  }
+  
+  window.sidebarAPI.onUserChanged(handleUserChange)
+  return () => window.sidebarAPI.removeUserChangedListener()
+}, [refreshHistory])
+```
+
+**Data Isolation**: Each user's history stored in separate JSON files:
+- `users/user-data/{userId}/browsing-history.json`
+- Complete privacy between user accounts
+- History persists across sessions
+
+### Search and Management
+
+**Search Features**:
+- Real-time search by title or URL
+- Results sorted by recency
+- Debounced for performance (300ms)
+- Clear search to return to full history
+
+**Management Actions**:
+- **Individual Removal**: X button on hover
+- **Bulk Clear**: Confirmation dialog with 3-second timeout
+- **Manual Refresh**: Force reload history data
+- **Smart Navigation**: Reuse existing tabs when possible
+
+**Key Functions Involved**:
+- `Tab.recordHistoryEntry()` - Capture navigation events
+- `UserDataManager.addHistoryEntry()` - Store with deduplication
+- `HistoryContext.refreshHistory()` - Load and sort for UI
+- `History.tsx` - Complete UI with search and management
+- `EventManager.navigate-from-history` - Smart tab navigation
+
+---
+
 ## Advanced Browser Features
 
 ### JavaScript Execution in Tabs

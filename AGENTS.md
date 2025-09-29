@@ -151,6 +151,8 @@ const api = {
 - Page content extraction for AI context
 - Chat interface with AI integration
 - Screenshot and JavaScript execution capabilities
+- Per-user browsing history with search and management
+- Smart tab navigation from history entries
 
 ## Implementation Guidelines
 - **Incremental Development**: Build MVPs, iterate based on user behavior

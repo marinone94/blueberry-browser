@@ -514,6 +514,60 @@ userData/users/user-data/
 - **Uses**: ChatContext, react-markdown, remark plugins, Lucide icons
 - **Used by**: SidebarApp
 
+#### 📄 src/renderer/sidebar/src/contexts/HistoryContext.tsx
+**Purpose**: React context for managing browsing history state and operations
+
+**Key Functions**:
+- `refreshHistory()`: Load and sort user's browsing history
+- `searchHistory()`: Filter history by title or URL with debouncing
+- `clearHistory()`: Remove all history entries for current user
+- `removeEntry()`: Delete individual history entry
+- `navigateToUrl()`: Navigate to URL (activates existing tab or creates new one)
+
+**State Management**:
+- `history`: Array of browsing history entries, sorted by recency
+- `isLoading`: Loading state for async operations
+- `searchQuery`: Current search filter text
+
+**User Integration**:
+- Automatically refreshes when user switches accounts
+- Listens to `onUserChanged` events from sidebar API
+- Proper cleanup of event listeners on unmount
+
+**Dependencies**:
+- **Uses**: window.sidebarAPI for IPC communication
+- **Used by**: History component, SidebarApp
+
+#### 📄 src/renderer/sidebar/src/components/History.tsx
+**Purpose**: Complete browsing history UI with search, management, and navigation
+
+**Key Components**:
+- `HistoryEntry`: Individual history item with favicon, title, domain, time, and remove button
+- `History`: Main history interface with search, actions, and scrollable list
+
+**Features**:
+- **3-Column Layout**: Favicon | Title + Domain | Timestamp + Remove
+- **Smart Time Formatting**: "Just now", "5m ago", "2h ago", "Yesterday", "3 days ago"
+- **Real-time Search**: Filter by title or URL with 300ms debounce
+- **Manual Refresh**: Button to force reload history data
+- **Bulk Clear**: Confirmation dialog with 3-second auto-hide
+- **Smart Navigation**: Reuses existing tabs instead of creating duplicates
+
+**User Experience**:
+- Hover effects reveal remove buttons
+- Loading indicators during operations
+- Empty states for no history or no search results
+- Auto-close after successful navigation
+
+**Time Formatting Logic**:
+- Handles invalid dates and future dates gracefully
+- Calculates relative time differences accurately
+- Updates in real-time as entries age
+
+**Dependencies**:
+- **Uses**: HistoryContext, Lucide icons, common Button component
+- **Used by**: SidebarApp (conditionally rendered)
+
 ---
 
 ## Shared Components
