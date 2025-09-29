@@ -871,4 +871,253 @@ const createTab = async (url?: string) => {
 - Network errors display in tab content
 - Back/forward buttons disabled when no history available
 
+---
+
+## User Activity Tracking System
+
+### Comprehensive Activity Collection
+
+**Purpose**: Track detailed user behavior across all interactions to build comprehensive user profiles and enable proactive browsing capabilities
+
+**Complete Flow**:
+
+1. **Activity Monitoring Initialization** (`Window.ts`):
+   ```typescript
+   createTab(url) → {
+     const activityCollector = new ActivityCollector(userDataManager, currentUser.id)
+     tab.setActivityCallback((activity) => activityCollector.collectActivity(activity))
+   }
+   ```
+
+2. **Tab-Level Activity Tracking** (`Tab.ts`):
+   ```typescript
+   // Page navigation tracking
+   webContents.on('did-navigate', () => {
+     recordActivity('page_visit', {
+       url, title, loadTime, referrer, userAgent
+     })
+   })
+   
+   // User interaction monitoring
+   webContents.on('did-finish-load', () => {
+     injectActivityScript() // Monitor clicks, scrolls, keyboard input
+   })
+   
+   // Focus/blur tracking
+   show() → recordActivity('focus_change', {focusType: 'tab_focus'})
+   hide() → recordActivity('focus_change', {focusType: 'tab_blur'})
+   ```
+
+3. **In-Page Activity Monitoring** (Injected Script):
+   ```javascript
+   // Click tracking
+   document.addEventListener('click', (e) => {
+     window.electronAPI.reportActivity('click_event', {
+       x: e.clientX, y: e.clientY,
+       elementTag: e.target.tagName,
+       elementClass: e.target.className,
+       clickType: e.button === 0 ? 'left' : 'right'
+     })
+   })
+   
+   // Scroll depth monitoring
+   window.addEventListener('scroll', throttle(() => {
+     window.electronAPI.reportActivity('scroll_event', {
+       scrollTop: window.scrollY,
+       viewportHeight: window.innerHeight,
+       documentHeight: document.body.scrollHeight
+     })
+   }, 500))
+   
+   // Keyboard input tracking
+   document.addEventListener('keydown', () => {
+     keyboardEventCount++
+     // Debounced reporting every 2 seconds
+   })
+   ```
+
+4. **Activity Data Buffering** (`ActivityCollector.ts`):
+   ```typescript
+   collectActivity(type, data) → {
+     const activity = {
+       id: generateId(),
+       userId: this.userId,
+       timestamp: new Date(),
+       sessionId: this.sessionId,
+       type,
+       data
+     }
+     
+     this.buffer.push(activity)
+     
+     // Flush buffer when full or on timer
+     if (buffer.length >= BUFFER_SIZE) {
+       flushActivities()
+     }
+   }
+   
+   flushActivities() → {
+     userDataManager.saveRawActivityData(userId, buffer)
+     buffer.length = 0
+   }
+   ```
+
+5. **Persistent Storage** (`UserDataManager.ts`):
+   ```typescript
+   saveRawActivityData(userId, activities) → {
+     const today = new Date().toISOString().split('T')[0]
+     const filePath = `users/user-data/${userId}/raw-activity/${today}.json`
+     
+     // Append to daily file
+     const existingData = await readJsonFile(filePath) || []
+     existingData.push(...activities)
+     await writeJsonFile(filePath, existingData)
+   }
+   ```
+
+### Activity Types Tracked
+
+**13 Comprehensive Activity Categories**:
+
+1. **Page Visits**: URL, title, load time, referrer tracking
+2. **Page Interactions**: Time on page, scroll depth, click counts, exit methods
+3. **Click Events**: Precise coordinates, element details, click types
+4. **Scroll Events**: Direction, speed, viewport position tracking
+5. **Keyboard Input**: Key counts, input contexts, typing patterns
+6. **Mouse Movements**: Movement paths, speeds, interaction patterns
+7. **Search Queries**: Query analysis, search engine detection
+8. **Navigation Events**: Navigation methods, load times, URL transitions
+9. **Tab Actions**: Tab lifecycle events, tab switching patterns
+10. **Focus Changes**: Window and tab focus patterns
+11. **Chat Interactions**: AI chat usage, message patterns, context
+12. **Content Extraction**: Page content analysis, media detection
+13. **Form Interactions**: Form usage patterns, completion rates
+
+### Chat Integration Tracking
+
+**User Action**: Send message in AI chat interface
+
+**Activity Tracking Flow**:
+
+1. **Chat Message Capture** (`LLMClient.ts`):
+   ```typescript
+   sendChatMessage(request) → {
+     // Record chat interaction
+     activityCollector.collectActivity('chat_interaction', {
+       userMessage: request.message,
+       messageLength: request.message.length,
+       contextUrl: activeTab?.url,
+       conversationLength: messages.length
+     })
+     
+     // Process AI response and track response time
+     const startTime = Date.now()
+     await streamResponse(contextMessages, messageId)
+     const responseTime = Date.now() - startTime
+     
+     // Update activity with response time
+     activityCollector.collectActivity('chat_interaction', {
+       responseTime,
+       conversationLength: messages.length + 1
+     })
+   }
+   ```
+
+2. **Content Context Tracking**:
+   ```typescript
+   // Automatically track content extraction for AI context
+   const pageText = await activeTab.getTabText()
+   const screenshot = await activeTab.screenshot()
+   
+   activityCollector.collectActivity('content_extraction', {
+     url: activeTab.url,
+     title: activeTab.title,
+     contentType: detectContentType(pageText),
+     textLength: pageText.length,
+     hasImages: containsImages(pageText),
+     language: detectLanguage(pageText)
+   })
+   ```
+
+### Data Storage Structure
+
+**Daily Activity Files**:
+```
+users/user-data/{userId}/raw-activity/
+├── 2025-09-29.json    # Daily activity logs
+├── 2025-09-30.json
+└── 2025-10-01.json
+```
+
+**Activity Record Format**:
+```json
+{
+  "id": "activity-1759172738321-1uw4ddyqc",
+  "userId": "07bb0c68-fc82-45e2-8d7b-8f5df9d31044", 
+  "timestamp": "2025-09-29T19:05:38.321Z",
+  "sessionId": "session-1759172738310-xjo4mdj1c",
+  "type": "click_event",
+  "data": {
+    "url": "https://example.com",
+    "x": 245,
+    "y": 156,
+    "elementTag": "BUTTON",
+    "elementClass": "submit-btn",
+    "clickType": "left",
+    "isDoubleClick": false
+  }
+}
+```
+
+### Performance Optimizations
+
+**Buffered Collection**:
+- Activities buffered in memory (default: 50 items)
+- Automatic flushing every 30 seconds
+- Immediate flush on buffer full or app close
+
+**Throttled Event Monitoring**:
+- Mouse movements: 100ms throttle
+- Scroll events: 500ms throttle  
+- Keyboard events: Debounced reporting every 2 seconds
+
+**Efficient Storage**:
+- Daily JSON files for easy analysis
+- Compressed data structures
+- Automatic cleanup of old activity files
+
+### User Privacy & Control
+
+**Per-User Isolation**:
+- Complete activity separation between user accounts
+- Guest user activities cleared on app restart
+- Session-based activity grouping
+
+**Data Access Patterns**:
+- Local storage only - no external transmission
+- Structured data format for future analysis
+- User-controlled data retention policies
+
+### Key Functions Involved
+
+**Activity Collection**:
+- `ActivityCollector.collectActivity()` - Core activity recording
+- `Tab.recordActivity()` - Tab-level activity capture  
+- `Tab.injectActivityScript()` - In-page monitoring setup
+- `UserDataManager.saveRawActivityData()` - Persistent storage
+
+**Data Management**:
+- `ActivityCollector.flushActivities()` - Buffer management
+- `UserDataManager.getRawActivityData()` - Data retrieval
+- `UserDataManager.cleanupOldActivity()` - Data maintenance
+
+**Integration Points**:
+- `Window.createTab()` - Activity collector initialization
+- `LLMClient.sendChatMessage()` - Chat interaction tracking
+- `Tab event handlers` - Navigation and interaction capture
+
+This comprehensive activity tracking system provides the foundation for building detailed user profiles and enabling advanced proactive browsing capabilities while maintaining strict privacy and performance standards.
+
+---
+
 This comprehensive feature analysis demonstrates how Blueberry Browser coordinates multiple processes and technologies to deliver a seamless, AI-enhanced browsing experience.

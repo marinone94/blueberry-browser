@@ -70,6 +70,8 @@ The main process (`src/main/`) orchestrates the entire application:
 - **`Menu.ts`**: Application menu and keyboard shortcuts
 - **`UserAccountManager.ts`**: Core user account management with session isolation
 - **`UserDataManager.ts`**: User-specific data persistence and file system operations
+- **`ActivityCollector.ts`**: Buffered collection and processing of user activity data
+- **`ActivityTypes.ts`**: Comprehensive type definitions for 13 activity categories
 
 #### Renderer Processes
 The application runs three types of renderer processes:
@@ -144,6 +146,125 @@ Streaming response → WebContents.send("chat-response")
     ↓
 Sidebar updates UI with AI response
 ```
+
+---
+
+## Activity Tracking Architecture
+
+### Overview
+The activity tracking system implements comprehensive user behavior monitoring through a multi-layered architecture that captures, buffers, and persists detailed interaction data while maintaining performance and privacy.
+
+### Component Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Main Process                             │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────┐  │
+│  │ActivityCollector│  │  ActivityTypes  │  │UserDataMgr  │  │
+│  │   (Buffering)   │  │ (Type Defs)     │  │(Persistence)│  │
+│  └─────────────────┘  └─────────────────┘  └─────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+                            │
+           ┌────────────────┼────────────────┐
+           │                │                │
+    ┌──────▼──────┐  ┌──────▼──────┐  ┌──────▼──────┐
+    │ Tab Process │  │   TopBar    │  │   Sidebar   │
+    │ (Activity   │  │ (Navigation │  │ (Chat       │
+    │  Injection) │  │  Tracking)  │  │  Tracking)  │
+    └─────────────┘  └─────────────┘  └─────────────┘
+```
+
+### Activity Collection Flow
+
+#### Data Collection Pipeline
+1. **Event Capture**: Browser events and injected page scripts capture user interactions
+2. **Data Structuring**: Raw events converted to typed ActivityData structures
+3. **Buffered Collection**: ActivityCollector buffers activities in memory
+4. **Periodic Flushing**: Buffer automatically flushed every 30 seconds or when full
+5. **Persistent Storage**: UserDataManager saves to daily JSON files per user
+
+#### Activity Categories
+The system tracks 13 comprehensive activity types:
+- **Navigation**: `page_visit`, `navigation_event`, `tab_action`
+- **Interaction**: `click_event`, `scroll_event`, `keyboard_input`, `mouse_movement`
+- **Context**: `focus_change`, `page_interaction`, `content_extraction`
+- **Features**: `search_query`, `chat_interaction`, `form_interaction`
+
+#### Performance Optimizations
+- **Buffered Collection**: Memory buffer (50 items) prevents I/O bottlenecks
+- **Throttled Events**: Mouse movements (100ms), scrolls (500ms), keyboard (2s debounce)
+- **Daily File Rotation**: Separate JSON files per day for efficient access
+- **Session Grouping**: Activities grouped by session ID for analysis
+
+### Integration Points
+
+#### Tab-Level Integration
+```typescript
+// Window.ts - Activity collector per tab
+createTab(url) → {
+  const activityCollector = new ActivityCollector(userDataManager, currentUser.id)
+  tab.setActivityCallback((activity) => activityCollector.collectActivity(activity))
+}
+```
+
+#### In-Page Monitoring
+```typescript
+// Tab.ts - Inject monitoring scripts
+webContents.on('did-finish-load', () => {
+  injectActivityScript() // Monitors clicks, scrolls, keyboard
+})
+```
+
+#### Chat System Integration
+```typescript
+// LLMClient.ts - Track AI interactions
+sendChatMessage(request) → {
+  activityCollector.collectActivity('chat_interaction', {
+    userMessage: request.message,
+    contextUrl: activeTab?.url,
+    conversationLength: messages.length
+  })
+}
+```
+
+### Data Storage Architecture
+
+#### File Structure
+```
+users/user-data/{userId}/raw-activity/
+├── 2025-09-29.json    # Daily activity logs
+├── 2025-09-30.json    # Automatic file rotation
+└── 2025-10-01.json    # One file per day
+```
+
+#### Activity Record Schema
+```typescript
+interface RawActivityData {
+  id: string;           // Unique activity identifier
+  userId: string;       // User account isolation
+  timestamp: Date;      // Precise timing
+  sessionId: string;    // Browser session grouping
+  type: ActivityType;   // One of 13 activity categories
+  data: any;           // Type-specific payload
+}
+```
+
+### Privacy & Security
+
+#### User Isolation
+- Complete activity separation between user accounts
+- Guest user activities cleared on app restart
+- No cross-user data leakage possible
+
+#### Local-Only Storage
+- All activity data stored locally
+- No external transmission or cloud storage
+- User maintains complete control over data
+
+#### Session Management
+- Activities grouped by browser session
+- Session IDs prevent cross-session correlation attacks
+- Automatic session rotation on app restart
 
 ---
 
