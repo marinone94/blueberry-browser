@@ -187,6 +187,61 @@ export class EventManager {
     ipcMain.handle("sidebar-get-messages", () => {
       return this.mainWindow.sidebar.client.getMessages();
     });
+
+    // Chat History handlers
+    ipcMain.handle("get-chat-history", async () => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return null;
+      return await this.mainWindow.userDataManager.loadChatHistory(currentUser.id);
+    });
+
+    ipcMain.handle("get-chat-sessions", async () => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return [];
+      return await this.mainWindow.userDataManager.getChatSessions(currentUser.id);
+    });
+
+    ipcMain.handle("get-session-messages", async (_, sessionId: string) => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return [];
+      return await this.mainWindow.userDataManager.getSessionMessages(currentUser.id, sessionId);
+    });
+
+    ipcMain.handle("create-chat-session", async (_, contextUrl?: string, title?: string) => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) throw new Error("No current user");
+      return await this.mainWindow.userDataManager.createChatSession(currentUser.id, contextUrl, title);
+    });
+
+    ipcMain.handle("switch-to-session", async (_, sessionId: string) => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return;
+      
+      // Set current session ID in user data manager
+      await this.mainWindow.userDataManager.setCurrentSessionId(currentUser.id, sessionId);
+      
+      // Update LLMClient's current session
+      this.mainWindow.sidebar.client.setCurrentSessionId(sessionId);
+      
+      // Load messages for this session and convert to CoreMessage format for display
+      const sessionMessages = await this.mainWindow.userDataManager.getSessionMessages(currentUser.id, sessionId);
+      const coreMessages = sessionMessages.map(msg => {
+        const coreMessage: any = {
+          role: msg.role,
+          content: msg.content
+        };
+        return coreMessage;
+      });
+      
+      // Update LLMClient's messages
+      this.mainWindow.sidebar.client.setMessages(coreMessages);
+    });
+
+    ipcMain.handle("clear-chat-history", async () => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return;
+      await this.mainWindow.userDataManager.clearChatHistory(currentUser.id);
+    });
   }
 
   private handlePageContentEvents(): void {

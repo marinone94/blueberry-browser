@@ -2,8 +2,9 @@ import React, { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
-import { ArrowUp, Plus, Clock } from 'lucide-react'
+import { ArrowUp, Plus, Clock, Globe } from 'lucide-react'
 import { useChat } from '../contexts/ChatContext'
+import { useChatHistory } from '../contexts/ChatHistoryContext'
 import { cn } from '@common/lib/utils'
 import { Button } from '@common/components/Button'
 
@@ -264,12 +265,18 @@ const ConversationTurnComponent: React.FC<{
 
 // Main Chat Component
 interface ChatProps {
-    onShowHistory: () => void
+    onShowHistory: (type: 'chats' | 'browsing') => void
 }
 
 export const Chat: React.FC<ChatProps> = ({ onShowHistory }) => {
     const { messages, isLoading, sendMessage, clearChat } = useChat()
+    const { loadSessions } = useChatHistory()
     const scrollRef = useAutoScroll(messages)
+    
+    const handleShowChats = async () => {
+        await loadSessions() // Refresh sessions list
+        onShowHistory('chats')
+    }
 
     // Group messages into conversation turns
     const conversationTurns: ConversationTurn[] = []
@@ -311,15 +318,27 @@ export const Chat: React.FC<ChatProps> = ({ onShowHistory }) => {
                         )}
                     </div>
                     
-                    {/* History Button - Always visible on the right */}
-                    <Button
-                        onClick={onShowHistory}
-                        title="View browsing history"
-                        variant="ghost"
-                        size="sm"
-                    >
-                        <Clock className="size-4" />
-                    </Button>
+                    {/* History Buttons - Always visible on the right */}
+                    <div className="flex items-center gap-2">
+                        <Button
+                            onClick={handleShowChats}
+                            title="View chat history"
+                            variant="ghost"
+                            size="sm"
+                        >
+                            <Clock className="size-4" />
+                            Chats
+                        </Button>
+                        <Button
+                            onClick={() => onShowHistory('browsing')}
+                            title="View browsing history"
+                            variant="ghost"
+                            size="sm"
+                        >
+                            <Globe className="size-4" />
+                            Browsing
+                        </Button>
+                    </div>
                 </div>
 
                 <div className="pb-4 relative max-w-3xl mx-auto px-4">

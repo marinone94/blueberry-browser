@@ -44,6 +44,42 @@ interface UserData {
   userStats: UserStats;
 }
 
+interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string | any[];
+  timestamp: Date;
+  contextUrl?: string;
+  contextTitle?: string;
+  sessionId: string;
+  responseTime?: number;
+  messageIndex: number;
+  source: 'user' | 'assistant' | 'system';
+}
+
+interface ChatSession {
+  id: string;
+  userId: string;
+  title: string;
+  startedAt: Date;
+  lastMessageAt: Date;
+  lastActiveAt: Date;
+  messageCount: number;
+  contextUrls: string[];
+  totalResponseTime: number;
+  averageResponseTime: number;
+}
+
+interface ChatHistory {
+  sessions: ChatSession[];
+  messages: ChatMessage[];
+  currentSessionId: string | null;
+  totalConversations: number;
+  totalMessages: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 interface SidebarAPI {
   // Chat functionality
   sendChatMessage: (request: Partial<ChatRequest>) => Promise<void>;
@@ -53,6 +89,14 @@ interface SidebarAPI {
   onMessagesUpdated: (callback: (messages: any[]) => void) => void;
   removeChatResponseListener: () => void;
   removeMessagesUpdatedListener: () => void;
+
+  // Chat History functionality
+  getChatHistory: () => Promise<ChatHistory>;
+  getChatSessions: () => Promise<ChatSession[]>;
+  getSessionMessages: (sessionId: string) => Promise<ChatMessage[]>;
+  createChatSession: (contextUrl?: string, title?: string) => Promise<string>;
+  switchToSession: (sessionId: string) => Promise<void>;
+  clearChatHistory: () => Promise<void>;
 
   // Page content access
   getPageContent: () => Promise<string | null>;

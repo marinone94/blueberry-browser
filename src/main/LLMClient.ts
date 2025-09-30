@@ -6,6 +6,7 @@ import * as dotenv from "dotenv";
 import { join } from "path";
 import type { Window } from "./Window";
 import type { UserAccountManager } from "./UserAccountManager";
+import type { StreamingMetrics } from "./UserDataManager";
 
 // Load environment variables from .env file
 dotenv.config({ path: join(__dirname, "../../.env") });
@@ -30,6 +31,26 @@ const DEFAULT_MODELS: Record<LLMProvider, string> = {
 const MAX_CONTEXT_LENGTH = 4000;
 const DEFAULT_TEMPERATURE = 0.7;
 
+// Helper functions for calculating statistics
+function calculateMean(arr: number[]): number {
+  if (arr.length === 0) return 0;
+  return arr.reduce((sum, val) => sum + val, 0) / arr.length;
+}
+
+function calculateMedian(arr: number[]): number {
+  if (arr.length === 0) return 0;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+function calculateStdDev(arr: number[], mean: number): number {
+  if (arr.length === 0) return 0;
+  const squaredDiffs = arr.map(val => Math.pow(val - mean, 2));
+  const variance = squaredDiffs.reduce((sum, val) => sum + val, 0) / arr.length;
+  return Math.sqrt(variance);
+}
+
 export class LLMClient {
   private readonly webContents: WebContents;
   private window: Window | null = null;
@@ -39,6 +60,7 @@ export class LLMClient {
   private readonly model: LanguageModel | null;
   private messages: CoreMessage[] = [];
   private currentUserId: string | null = null;
+  private currentSessionId: string | null = null;
 
   constructor(webContents: WebContents) {
     this.webContents = webContents;
@@ -69,50 +91,59 @@ export class LLMClient {
     const currentUser = this.userAccountManager.getCurrentUser();
     if (!currentUser) return;
 
-    // If switching users, save current messages first
-    if (this.currentUserId && this.currentUserId !== currentUser.id && this.messages.length > 0) {
-      await this.saveMessagesForUser(this.currentUserId);
-    }
+    // No need to save when switching users - messages are automatically saved to enhanced history
 
-    // Load messages for new user
+    // Load messages for new user from enhanced chat history
     this.currentUserId = currentUser.id;
     try {
-      this.messages = await this.window.userDataManager.loadChatHistory(currentUser.id);
+      // Load current session ID
+      this.currentSessionId = await this.window.userDataManager.getCurrentSessionId(currentUser.id);
+      
+      // Load messages from enhanced chat history
+      if (this.currentSessionId) {
+        const sessionMessages = await this.window.userDataManager.getSessionMessages(currentUser.id, this.currentSessionId);
+        this.messages = sessionMessages.map(msg => {
+          const coreMessage: any = {
+            role: msg.role,
+            content: msg.content
+          };
+          return coreMessage;
+        });
+      } else {
+        this.messages = [];
+      }
+      
       this.sendMessagesToRenderer();
       console.log(`Loaded ${this.messages.length} messages for user: ${currentUser.name}`);
     } catch (error) {
       console.error("Failed to load user messages:", error);
       this.messages = [];
+      this.currentSessionId = null;
     }
   }
 
-  /**
-   * Save messages for specific user
-   */
-  private async saveMessagesForUser(userId: string): Promise<void> {
-    if (!this.window || !this.userAccountManager) return;
-
-    try {
-      await this.window.userDataManager.saveChatHistory(userId, this.messages);
-      console.log(`Saved ${this.messages.length} messages for user: ${userId}`);
-    } catch (error) {
-      console.error(`Failed to save messages for user ${userId}:`, error);
-    }
-  }
-
-  /**
-   * Save messages for current user
-   */
-  private async saveCurrentUserMessages(): Promise<void> {
-    if (!this.currentUserId) return;
-    await this.saveMessagesForUser(this.currentUserId);
-  }
 
   /**
    * Handle user switching - called when user account changes
    */
   async handleUserSwitch(): Promise<void> {
     await this.loadCurrentUserMessages();
+  }
+
+  /**
+   * Ensure we have a current session for enhanced chat history
+   */
+  private async ensureCurrentSession(): Promise<void> {
+    if (!this.currentUserId || !this.window) return;
+    
+    // If we don't have a current session, create one
+    if (!this.currentSessionId) {
+      const contextUrl = this.window.activeTab?.url;
+      this.currentSessionId = await this.window.userDataManager.createChatSession(
+        this.currentUserId,
+        contextUrl
+      );
+    }
   }
 
   private getProvider(): LLMProvider {
@@ -167,11 +198,22 @@ export class LLMClient {
 
   async sendChatMessage(request: ChatRequest): Promise<void> {
     try {
-      // Get screenshot from active tab if available
+      // Ensure we have a current session
+      await this.ensureCurrentSession();
+      
+      const startTime = Date.now();
+      
+      // Get context from active tab
+      let contextUrl: string | null = null;
+      let contextTitle: string | null = null;
       let screenshot: string | null = null;
+      
       if (this.window) {
         const activeTab = this.window.activeTab;
         if (activeTab) {
+          contextUrl = activeTab.url;
+          contextTitle = activeTab.title;
+          
           try {
             const image = await activeTab.screenshot();
             screenshot = image.toDataURL();
@@ -206,11 +248,19 @@ export class LLMClient {
       
       this.messages.push(userMessage);
 
+      // Save user message to chat history
+      if (this.currentUserId && this.currentSessionId) {
+        await this.window?.userDataManager.addChatMessage(
+          this.currentUserId,
+          userMessage,
+          this.currentSessionId,
+          contextUrl || undefined,
+          contextTitle || undefined
+        );
+      }
+
       // Send updated messages to renderer
       this.sendMessagesToRenderer();
-
-      // Save messages for current user
-      await this.saveCurrentUserMessages();
 
       if (!this.model) {
         this.sendErrorMessage(
@@ -221,7 +271,7 @@ export class LLMClient {
       }
 
       const messages = await this.prepareMessagesWithContext(request);
-      await this.streamResponse(messages, request.messageId);
+      await this.streamResponse(messages, request.messageId, startTime, contextUrl, contextTitle);
     } catch (error) {
       console.error("Error in LLM request:", error);
       this.handleStreamError(error, request.messageId);
@@ -232,12 +282,22 @@ export class LLMClient {
     this.messages = [];
     this.sendMessagesToRenderer();
     
-    // Save empty messages for current user
-    await this.saveCurrentUserMessages();
+    // Don't clear the entire chat history, just reset current session
+    // The user can start a new session if they want
+    this.currentSessionId = null;
   }
 
   getMessages(): CoreMessage[] {
     return this.messages;
+  }
+
+  setCurrentSessionId(sessionId: string): void {
+    this.currentSessionId = sessionId;
+  }
+
+  setMessages(messages: CoreMessage[]): void {
+    this.messages = messages;
+    this.sendMessagesToRenderer();
   }
 
   private sendMessagesToRenderer(): void {
@@ -302,7 +362,10 @@ export class LLMClient {
 
   private async streamResponse(
     messages: CoreMessage[],
-    messageId: string
+    messageId: string,
+    startTime?: number,
+    contextUrl?: string | null,
+    contextTitle?: string | null
   ): Promise<void> {
     if (!this.model) {
       throw new Error("Model not initialized");
@@ -317,7 +380,7 @@ export class LLMClient {
         abortSignal: undefined, // Could add abort controller for cancellation
       });
 
-      await this.processStream(result.textStream, messageId);
+      await this.processStream(result.textStream, messageId, startTime, contextUrl, contextTitle);
     } catch (error) {
       throw error; // Re-throw to be handled by the caller
     }
@@ -325,9 +388,19 @@ export class LLMClient {
 
   private async processStream(
     textStream: AsyncIterable<string>,
-    messageId: string
+    messageId: string,
+    startTime?: number,
+    contextUrl?: string | null,
+    contextTitle?: string | null
   ): Promise<void> {
     let accumulatedText = "";
+    
+    // Streaming performance tracking
+    const streamStartTime = Date.now();
+    let timeToFirstToken: number | null = null;
+    const timeToOtherToken: number[] = [];
+    let lastTokenTime = streamStartTime;
+    let tokenCount = 0;
 
     // Create a placeholder assistant message
     const assistantMessage: CoreMessage = {
@@ -340,6 +413,18 @@ export class LLMClient {
     this.messages.push(assistantMessage);
 
     for await (const chunk of textStream) {
+      const currentTime = Date.now();
+      
+      // Track time to first token
+      if (timeToFirstToken === null) {
+        timeToFirstToken = currentTime - streamStartTime;
+      } else {
+        // Track time between tokens
+        timeToOtherToken.push(currentTime - lastTokenTime);
+      }
+      
+      lastTokenTime = currentTime;
+      tokenCount++;
       accumulatedText += chunk;
 
       // Update assistant message content
@@ -355,6 +440,27 @@ export class LLMClient {
       });
     }
 
+    // Calculate response time
+    const responseTime = startTime ? Date.now() - startTime : undefined;
+
+    // Calculate streaming metrics
+    let streamingMetrics: StreamingMetrics | undefined;
+    if (timeToFirstToken !== null && timeToOtherToken.length > 0) {
+      const meanTokenTime = calculateMean(timeToOtherToken);
+      const medianTokenTime = calculateMedian(timeToOtherToken);
+      const stdDevTokenTime = calculateStdDev(timeToOtherToken, meanTokenTime);
+      
+      streamingMetrics = {
+        modelName: this.modelName,
+        timeToFirstToken,
+        timeToOtherToken,
+        meanTokenTime,
+        medianTokenTime,
+        stdDevTokenTime,
+        totalTokens: tokenCount
+      };
+    }
+
     // Final update with complete content
     this.messages[messageIndex] = {
       role: "assistant",
@@ -362,8 +468,18 @@ export class LLMClient {
     };
     this.sendMessagesToRenderer();
 
-    // Save messages for current user after assistant response
-    await this.saveCurrentUserMessages();
+    // Save assistant message to chat history with streaming metrics
+    if (this.currentUserId && this.currentSessionId) {
+      await this.window?.userDataManager.addChatMessage(
+        this.currentUserId,
+        this.messages[messageIndex],
+        this.currentSessionId,
+        contextUrl || undefined,
+        contextTitle || undefined,
+        responseTime,
+        streamingMetrics
+      );
+    }
 
     // Send the final complete signal
     this.sendStreamChunk(messageId, {
