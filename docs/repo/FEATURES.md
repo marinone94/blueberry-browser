@@ -1678,4 +1678,417 @@ This comprehensive activity tracking system provides the foundation for building
 
 ---
 
+## Content Analysis System
+
+### Overview
+
+The Content Analysis System performs intelligent, AI-powered analysis of visited web pages to extract structured information including text content, visual descriptions, language detection, and hierarchical categorization. The system operates asynchronously to avoid blocking the browser, with smart deduplication to prevent redundant analysis of unchanged content.
+
+### Page Visit Analysis Flow
+
+**User Action**: User switches to a tab (tab activation)
+
+**Trigger**: First activation of a page
+
+**Complete Flow**:
+
+1. **Tab Activation** (`Tab.ts`):
+   ```typescript
+   show() → {
+     if (!hasAnalyzedThisPage && contentAnalyzer && activityCollector) {
+       hasAnalyzedThisPage = true
+       activityId = generateActivityId()
+       userId = activityCollector.getUserId()
+       
+       // Trigger async analysis (non-blocking)
+       contentAnalyzer.onPageVisit(activityId, url, userId, this)
+     }
+   }
+   ```
+
+2. **Data Extraction** (`ContentAnalyzer.ts`):
+   ```typescript
+   onPageVisit(activityId, url, userId, tab) → {
+     // Extract page HTML
+     html = await tab.getTabHtml()
+     htmlHash = computeHash(html)
+     
+     // Extract structured text
+     extractedText = await tab.extractStructuredText()
+     // Returns: { title, metaDescription, headings, paragraphs, links, fullText }
+     
+     // Capture screenshot with metadata
+     screenshotData = await tab.getScreenshotWithMetadata()
+     screenshotBuffer = screenshotData.image.toPNG()
+     screenshotHash = computeHash(screenshotBuffer)
+   }
+   ```
+
+3. **Deduplication Check** (`ContentAnalyzer.ts`):
+   ```typescript
+   // Create index key from URL + content hashes
+   indexKey = `${url}:${htmlHash}:${screenshotHash}`
+   analysisIndex = await userDataManager.getAnalysisIndex(userId)
+   existingAnalysisId = analysisIndex.get(indexKey)
+   
+   if (existingAnalysisId) {
+     // Reuse existing analysis - just link activity ID
+     await userDataManager.linkActivityToAnalysis(userId, activityId, existingAnalysisId)
+     return // No new analysis needed
+   }
+   ```
+
+4. **Storage & Queueing** (`ContentAnalyzer.ts`):
+   ```typescript
+   // Save screenshot for analysis
+   screenshotPath = await userDataManager.saveScreenshot(userId, activityId, screenshotBuffer)
+   
+   // Store temp data for queue processing
+   tempData = { activityId, html, htmlHash, extractedText, screenshotHash, screenshotMetadata }
+   await saveTempAnalysisData(userId, activityId, tempData)
+   
+   // Add to processing queue
+   await addToQueue({ activityId, userId, url, timestamp })
+   ```
+
+5. **Queue Processing** (`ContentAnalyzer.ts` Worker):
+   ```typescript
+   processNextInQueue() → {
+     // Load saved data
+     tempData = await loadTempAnalysisData(activityId)
+     screenshotBuffer = await userDataManager.getScreenshot(userId, activityId)
+     
+     // Get current categories for prompt
+     exampleCategories = categoryManager.getExampleCategories()
+     
+     // Build analysis prompt
+     prompt = buildAnalysisPrompt(url, extractedText, exampleCategories)
+   }
+   ```
+
+6. **LLM Analysis** (`ContentAnalyzer.ts`):
+   ```typescript
+   // Call GPT-4o-mini with multimodal input
+   result = await streamText({
+     model: 'gpt-4o-mini',
+     messages: [{
+       role: 'user',
+       content: [
+         { type: 'image', image: screenshotDataUrl },
+         { type: 'text', text: prompt }
+       ]
+     }]
+   })
+   
+   // Stream and parse response
+   rawResponse = ''
+   for await (chunk of result.textStream) {
+     rawResponse += chunk
+   }
+   
+   llmResponse = parseJSONResponse(rawResponse)
+   // Returns: { pageDescription, screenshotDescription, languages, 
+   //            primaryLanguage, category, subcategory, brand }
+   ```
+
+7. **Retry Logic** (if JSON parsing fails):
+   ```typescript
+   if (!llmResponse && retryCount < MAX_RETRIES) {
+     // Send retry prompt
+     retryPrompt = "Your previous response could not be parsed as valid JSON..."
+     
+     // Retry with more explicit instructions
+     result = await streamText({
+       messages: [...previousMessages, { role: 'user', content: retryPrompt }],
+       temperature: 0.1  // Lower temperature for stricter output
+     })
+   }
+   
+   // Rate limit handling: Only exponential backoff for 429 errors
+   if (error.includes('429')) {
+     waitTime = Math.pow(2, retryCount) * 1000
+     await sleep(waitTime)
+   }
+   ```
+
+8. **Category Management** (`CategoryManager.ts`):
+   ```typescript
+   // Record new category usage
+   await categoryManager.recordCategoryUse(llmResponse.category)
+   
+   // If new category:
+   if (categories.size < MAX_CATEGORIES) {
+     categories.set(categoryName, {
+       name, count: 1, firstSeen: Date, lastUsed: Date
+     })
+   }
+   // If at limit, LLM instructed to use "other"
+   ```
+
+9. **Save Analysis Result** (`UserDataManager.ts`):
+   ```typescript
+   analysisResult = {
+     analysisId, activityIds: [activityId], userId, timestamp, url,
+     pageDescription, rawText, rawHtml, htmlHash,
+     screenshotDescription, screenshotPath, screenshotHash, screenshotMetadata,
+     category, subcategory, brand,
+     languages, primaryLanguage,
+     analysisStatus: 'completed', modelUsed: 'gpt-4o-mini',
+     analysisTime, llmInteractionId
+   }
+   
+   // Save to content-analysis/{date}.json
+   await userDataManager.saveContentAnalysis(userId, analysisResult)
+   
+   // Update index for deduplication
+   await userDataManager.updateAnalysisIndex(userId, indexKey, analysisId)
+   ```
+
+10. **Debug Logging** (`UserDataManager.ts`):
+    ```typescript
+    // Save complete LLM interaction for debugging
+    await userDataManager.saveLLMDebugLog(userId, {
+      interactionId, timestamp, analysisId, activityId, userId,
+      model: 'gpt-4o-mini',
+      prompt,
+      screenshotPath,  // Reference only, not full base64
+      rawResponse,
+      parsedResponse,
+      responseTime,
+      retryAttempt,
+      success: true
+    })
+    
+    // Clean up temporary data
+    await deleteTempAnalysisData(activityId)
+    ```
+
+### Text Extraction Methods
+
+**Robust Text Extraction** (`Tab.ts`):
+
+```typescript
+async extractStructuredText() → {
+  // Wait for page load
+  if (isLoading()) await waitForLoad()
+  
+  // Execute extraction script with timeout
+  result = await Promise.race([
+    runJs(extractionScript),
+    timeout(5000)
+  ])
+  
+  // Fallback on error
+  catch (error) {
+    text = await getTabText()  // Simple innerText fallback
+    return { title, fullText: text, ... }
+  }
+  
+  // Returns structured data:
+  return {
+    title, metaDescription,
+    headings: [{ level, text }],
+    paragraphs: [text],
+    links: [{ text, href }],
+    fullText, textLength
+  }
+}
+```
+
+**Screenshot with Metadata** (`Tab.ts`):
+
+```typescript
+async getScreenshotWithMetadata() → {
+  image = await screenshot()
+  
+  metadata = await runJs(`
+    return {
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      documentHeight: document.scrollHeight,
+      scrollPosition: { x: window.scrollX, y: window.scrollY },
+      zoomFactor: window.devicePixelRatio
+    }
+  `)
+  
+  return { image, metadata: { ...metadata, capturedAt: Date } }
+}
+```
+
+### Storage Structure
+
+```
+/users/user-data/{userId}/
+  ├── content-analysis/
+  │   ├── 2025-09-30.json              # Daily analysis results
+  │   └── index.json                   # url:htmlHash:screenshotHash → analysisId
+  ├── screenshots/
+  │   └── {activityId}.png             # Reusable screenshots
+  ├── llm-debug-logs/
+  │   └── 2025-09-30.json              # Complete LLM interactions for debugging
+  └── raw-activity/
+      └── 2025-09-30.json              # Activity tracking (existing)
+
+/users/global/
+  └── categories.json                  # Global category taxonomy (max 1000)
+
+/users/
+  └── analysis-queue.json              # Persistent analysis queue
+```
+
+### Data Structures
+
+**Content Analysis Result**:
+```typescript
+{
+  analysisId: string
+  activityIds: string[]                 // Multiple activities can share one analysis
+  userId: string
+  timestamp: Date
+  url: string
+  
+  // Text extraction
+  pageDescription: string               // AI-generated 2-3 sentence summary
+  rawText: {
+    title, metaDescription, headings, paragraphs, links, fullText, textLength
+  }
+  rawHtml: string                       // Full HTML for deduplication
+  htmlHash: string                      // SHA-256 hash
+  
+  // Visual analysis
+  screenshotDescription: string         // AI description of visual elements
+  screenshotPath: string                // Relative path to PNG
+  screenshotHash: string                // SHA-256 hash
+  screenshotMetadata: {
+    viewportWidth, viewportHeight, documentHeight,
+    scrollPosition: { x, y }, zoomFactor, capturedAt
+  }
+  
+  // Categorization
+  category: string                      // High-level (global, max 1000)
+  subcategory: string                   // Specific type (unlimited)
+  brand: string                         // Company/org name (unlimited)
+  
+  // Language detection
+  languages: string[]                   // ISO 639-1 codes
+  primaryLanguage: string
+  
+  // Metadata
+  analysisStatus: 'completed' | 'failed'
+  modelUsed: string
+  tokensUsed?: number
+  analysisTime: number                  // Milliseconds
+  error?: string
+  llmInteractionId?: string             // Link to debug log
+}
+```
+
+**LLM Debug Log**:
+```typescript
+{
+  interactionId: string
+  timestamp: Date
+  analysisId: string
+  activityId: string
+  userId: string
+  model: string
+  
+  // Request
+  prompt: string                        // Complete prompt sent to LLM
+  screenshotPath: string                // Reference only, not base64
+  temperature?: number
+  maxTokens?: number
+  
+  // Response
+  rawResponse: string                   // Raw LLM output
+  parsedResponse?: object               // Parsed JSON
+  parseError?: string
+  
+  // Metadata
+  tokensUsed?: number
+  responseTime: number                  // Milliseconds
+  retryAttempt: number
+  success: boolean
+}
+```
+
+### Key Features
+
+**Smart Deduplication**:
+- Compares HTML hash + screenshot hash before analysis
+- Multiple page visits → same analysis if content unchanged
+- Content changes (scrolled, interacted) → new analysis
+
+**Async Processing**:
+- Tab activation never blocked by analysis
+- Queue persists across app restarts
+- Continues processing even if tab/window closed or user switches accounts
+
+**Category Management**:
+- Global taxonomy shared across users
+- Max 1000 high-level categories
+- Unlimited subcategories and brands
+- AI instructed to reuse existing categories when possible
+- Periodic cleanup of unused categories (< 3 uses, > 6 months old)
+
+**Error Handling**:
+- Retry up to 3 times on JSON parse failure
+- Exponential backoff only for rate limit errors (429)
+- Failed analyses saved with error details
+- Debug logs preserved for troubleshooting
+
+**Performance**:
+- Uses lightweight GPT-4o-mini model
+- Single worker processes queue sequentially
+- Hash-based deduplication prevents redundant API calls
+- Text extraction with timeout protection
+
+### Key Functions Involved
+
+**Content Analysis**:
+- `ContentAnalyzer.onPageVisit()` - Entry point, extraction & deduplication
+- `ContentAnalyzer.performAnalysis()` - LLM analysis execution
+- `ContentAnalyzer.processNextInQueue()` - Queue worker
+- `Tab.extractStructuredText()` - Page text extraction
+- `Tab.getScreenshotWithMetadata()` - Screenshot capture with context
+
+**Category Management**:
+- `CategoryManager.load()` - Load global categories
+- `CategoryManager.recordCategoryUse()` - Track category usage
+- `CategoryManager.getExampleCategories()` - Provide examples for prompts
+- `CategoryManager.cleanup()` - Remove unused categories
+
+**Data Storage**:
+- `UserDataManager.saveContentAnalysis()` - Save analysis results
+- `UserDataManager.getAnalysisIndex()` - Load deduplication index
+- `UserDataManager.linkActivityToAnalysis()` - Link multiple activities
+- `UserDataManager.saveScreenshot()` - Store screenshot files
+- `UserDataManager.saveLLMDebugLog()` - Debug logging
+
+**Integration Points**:
+- `Window.initialize()` - Create CategoryManager and ContentAnalyzer
+- `Window.createTab()` - Pass ContentAnalyzer to new tabs
+- `Tab.show()` - Trigger analysis on first activation
+- `Tab.setContentAnalyzer()` - Inject analyzer into tabs
+
+### Example Analysis Output
+
+For `https://www.google.com`:
+
+```json
+{
+  "pageDescription": "The Google homepage allows users to perform web searches and access various Google services. It features a simple layout with a prominent search bar and options for signing in and accessing Gmail and Images.",
+  "screenshotDescription": "The layout is clean and minimalistic, dominated by the Google logo in vibrant colors. Below the logo, there is a central search bar, flanked by buttons for 'Google Search' and 'I'm Feeling Lucky'. The footer includes links to various Google services and mentions that the page is offered in Swedish.",
+  "languages": ["en", "sv"],
+  "primaryLanguage": "sv",
+  "category": "search-engine",
+  "subcategory": "web-search",
+  "brand": "Google"
+}
+```
+
+This intelligent content analysis system enables advanced features like semantic search across browsing history, automatic content categorization, and proactive browsing assistance based on deep understanding of visited pages.
+
+---
+
 This comprehensive feature analysis demonstrates how Blueberry Browser coordinates multiple processes and technologies to deliver a seamless, AI-enhanced browsing experience.

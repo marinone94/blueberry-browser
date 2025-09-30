@@ -1,5 +1,6 @@
 import { NativeImage, WebContentsView } from "electron";
 import type { ActivityCollector } from "./ActivityCollector";
+import type { ContentAnalyzer } from "./ContentAnalyzer";
 
 export type HistoryCallback = (entry: {
   url: string;
@@ -17,10 +18,12 @@ export class Tab {
   private _sessionPartition: string;
   private historyCallback?: HistoryCallback;
   private activityCollector?: ActivityCollector;
+  private contentAnalyzer?: ContentAnalyzer;
   private loadStartTime: number = 0;
   private lastFocusTime: number = 0;
   private lastBlurTime: number = 0;
   private scriptInjected: boolean = false;
+  private hasAnalyzedThisPage: boolean = false;
   private pageInteractionData: {
     clickCount: number;
     keyboardEvents: number;
@@ -106,6 +109,9 @@ export class Tab {
       
       // Reset script injection flag for new page
       this.scriptInjected = false;
+      
+      // Reset content analysis flag for new page
+      this.hasAnalyzedThisPage = false;
     });
 
     webContents.on("did-navigate-in-page", (_, url) => {
@@ -224,6 +230,10 @@ export class Tab {
   // Activity tracking methods
   setActivityCollector(collector: ActivityCollector): void {
     this.activityCollector = collector;
+  }
+
+  setContentAnalyzer(analyzer: ContentAnalyzer): void {
+    this.contentAnalyzer = analyzer;
   }
 
   private resetPageInteractionData(): void {
@@ -473,10 +483,26 @@ export class Tab {
   }
 
   // Public methods
-  show(): void {
+  async show(): Promise<void> {
     this._isVisible = true;
     this.webContentsView.setVisible(true);
     this.recordHistoryEntry();
+
+    // Trigger content analysis on first activation of this page
+    if (!this.hasAnalyzedThisPage && this.contentAnalyzer && this.activityCollector) {
+      this.hasAnalyzedThisPage = true;
+      
+      // Get current user ID from activity collector
+      const userId = this.activityCollector.getUserId();
+      
+      // Generate activity ID for this page visit
+      const activityId = `activity-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Trigger analysis asynchronously (don't await - let it run in background)
+      this.contentAnalyzer.onPageVisit(activityId, this._url, userId, this).catch(error => {
+        console.error('Content analysis failed:', error);
+      });
+    }
   }
 
   hide(): void {
@@ -493,16 +519,219 @@ export class Tab {
     return await this.webContentsView.webContents.capturePage();
   }
 
+  async getScreenshotWithMetadata(): Promise<{
+    image: NativeImage;
+    metadata: {
+      viewportWidth: number;
+      viewportHeight: number;
+      documentHeight: number;
+      scrollPosition: { x: number; y: number };
+      zoomFactor: number;
+      capturedAt: Date;
+    };
+  }> {
+    const image = await this.screenshot();
+    
+    try {
+      const metadata = await this.runJs(`
+        (function() {
+          return {
+            viewportWidth: window.innerWidth,
+            viewportHeight: window.innerHeight,
+            documentHeight: document.documentElement.scrollHeight,
+            scrollPosition: {
+              x: window.scrollX,
+              y: window.scrollY
+            },
+            zoomFactor: window.devicePixelRatio
+          };
+        })()
+      `);
+      
+      return {
+        image,
+        metadata: {
+          ...metadata,
+          capturedAt: new Date()
+        }
+      };
+    } catch (error) {
+      console.error('Failed to get screenshot metadata:', error);
+      // Return screenshot with default metadata
+      return {
+        image,
+        metadata: {
+          viewportWidth: -1,
+          viewportHeight: -1,
+          documentHeight: -1,
+          scrollPosition: { x: 0, y: 0 },
+          zoomFactor: 1,
+          capturedAt: new Date()
+        }
+      };
+    }
+  }
+
   async runJs(code: string): Promise<any> {
     return await this.webContentsView.webContents.executeJavaScript(code);
   }
 
   async getTabHtml(): Promise<string> {
-    return await this.runJs("return document.documentElement.outerHTML");
+    try {
+      // Wait for page to be fully loaded
+      if (this.webContentsView.webContents.isLoading()) {
+        await new Promise<void>((resolve) => {
+          this.webContentsView.webContents.once('did-finish-load', () => resolve());
+        });
+      }
+
+      // Execute with timeout
+      const result = await Promise.race([
+        this.runJs("document.documentElement.outerHTML"),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Timeout getting HTML')), 5000)
+        )
+      ]);
+
+      return result as string;
+    } catch (error) {
+      console.error('Failed to get HTML:', error);
+      return '';
+    }
   }
 
   async getTabText(): Promise<string> {
-    return await this.runJs("return document.documentElement.innerText");
+    try {
+      // Wait for page to be fully loaded
+      if (this.webContentsView.webContents.isLoading()) {
+        await new Promise<void>((resolve) => {
+          this.webContentsView.webContents.once('did-finish-load', () => resolve());
+        });
+      }
+
+      // Execute with timeout
+      const result = await Promise.race([
+        this.runJs("document.documentElement.innerText"),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Timeout getting text')), 5000)
+        )
+      ]);
+
+      return result as string;
+    } catch (error) {
+      console.error('Failed to get page text:', error);
+      
+      // Fallback: try to extract text from HTML
+      try {
+        const html = await this.getTabHtml();
+        if (html) {
+          return this.stripHtmlTags(html);
+        }
+      } catch {
+        // Ignore fallback errors
+      }
+      
+      return '';
+    }
+  }
+
+  async extractStructuredText(): Promise<{
+    title: string;
+    metaDescription?: string;
+    headings: Array<{ level: number; text: string }>;
+    paragraphs: string[];
+    links: Array<{ text: string; href: string }>;
+    fullText: string;
+    textLength: number;
+  }> {
+    try {
+      // Wait for page to be fully loaded
+      if (this.webContentsView.webContents.isLoading()) {
+        await new Promise<void>((resolve) => {
+          this.webContentsView.webContents.once('did-finish-load', () => resolve());
+        });
+      }
+
+      const extractionScript = `
+        (function() {
+          try {
+            return {
+              title: document.title || '',
+              metaDescription: document.querySelector('meta[name="description"]')?.content || '',
+              headings: Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, h6'))
+                .map(h => ({
+                  level: parseInt(h.tagName[1]),
+                  text: h.innerText.trim()
+                }))
+                .filter(h => h.text.length > 0),
+              paragraphs: Array.from(document.querySelectorAll('p'))
+                .map(p => p.innerText.trim())
+                .filter(t => t.length > 20),
+              links: Array.from(document.querySelectorAll('a[href]'))
+                .slice(0, 50)
+                .map(a => ({
+                  text: a.innerText.trim(),
+                  href: a.href
+                }))
+                .filter(l => l.text.length > 0),
+              fullText: document.body.innerText || '',
+              textLength: (document.body.innerText || '').length
+            };
+          } catch (e) {
+            return { error: e.message };
+          }
+        })()
+      `;
+
+      const result = await Promise.race([
+        this.runJs(extractionScript),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Timeout extracting text')), 5000)
+        )
+      ]) as any;
+
+      if (result.error) {
+        throw new Error(`Text extraction failed: ${result.error}`);
+      }
+
+      return result;
+    } catch (error) {
+      console.error('Failed to extract structured text:', error);
+      
+      // Return minimal structure with fallback text
+      try {
+        const text = await this.getTabText();
+        return {
+          title: this._title || '',
+          metaDescription: undefined,
+          headings: [],
+          paragraphs: [],
+          links: [],
+          fullText: text,
+          textLength: text.length
+        };
+      } catch {
+        return {
+          title: this._title || '',
+          metaDescription: undefined,
+          headings: [],
+          paragraphs: [],
+          links: [],
+          fullText: '',
+          textLength: 0
+        };
+      }
+    }
+  }
+
+  private stripHtmlTags(html: string): string {
+    // Basic HTML tag removal - not perfect but works for fallback
+    return html
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   loadURL(url: string): Promise<void> {

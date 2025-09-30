@@ -189,7 +189,7 @@ export class EventManager {
     });
 
     // Chat History handlers
-    ipcMain.handle("get-chat-history", async () => {
+      ]    ipcMain.handle("get-chat-history", async () => {
       const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
       if (!currentUser) return null;
       return await this.mainWindow.userDataManager.loadChatHistory(currentUser.id);
