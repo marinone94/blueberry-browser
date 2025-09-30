@@ -268,6 +268,176 @@ interface RawActivityData {
 
 ---
 
+## Chat History Architecture
+
+### Overview
+The chat history system implements a session-based architecture for organizing AI conversations with comprehensive metadata tracking. This enables multiple conversation threads, performance analytics, and context preservation across user sessions.
+
+### Component Structure
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Main Process                             │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────┐  │
+│  │   LLMClient     │  │UserDataManager  │  │EventManager │  │
+│  │  (Message       │  │  (Persistence)  │  │  (IPC Hub)  │  │
+│  │   Handling)     │  │                 │  │             │  │
+│  └─────────────────┘  └─────────────────┘  └─────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+                            │
+           ┌────────────────┼────────────────┐
+           │                │                │
+    ┌──────▼──────┐  ┌──────▼──────┐  ┌──────▼──────┐
+    │   Sidebar   │  │ChatHistory  │  │ChatHistory  │
+    │    (Chat    │  │   Context   │  │     UI      │
+    │  Interface) │  │   (State)   │  │ (Sessions)  │
+    └─────────────┘  └─────────────┘  └─────────────┘
+```
+
+### Data Model
+
+#### Session-Based Organization
+- **ChatSession**: Container for related messages with metadata
+- **ChatMessage**: Individual messages with timestamps and context
+- **ChatHistory**: Complete user chat data with all sessions and messages
+
+#### Metadata Tracking
+Each session tracks:
+- Message count and timestamps
+- Context URLs from browsing
+- Average AI response time
+- Total conversation duration
+- Last activity timestamp
+
+### Persistence Architecture
+
+#### Single-File Storage
+All chat data stored in one JSON file per user:
+```
+users/user-data/{userId}/chat-history.json
+```
+
+**Benefits**:
+- Atomic reads/writes for consistency
+- Simple backup and restore
+- Easy to migrate or export
+- No database complexity
+
+**Structure**:
+```json
+{
+  "sessions": [...],      // All conversation sessions
+  "messages": [...],      // All messages (linked by sessionId)
+  "currentSessionId": "session-123",
+  "totalConversations": 15,
+  "totalMessages": 127,
+  "createdAt": "2025-09-15T08:00:00.000Z",
+  "updatedAt": "2025-09-30T15:20:00.000Z"
+}
+```
+
+### Message Flow Architecture
+
+#### Message Creation and Persistence
+```
+User sends message (Sidebar)
+    ↓
+LLMClient.sendChatMessage()
+    ↓
+1. Capture context (URL, screenshot, page text)
+2. Create CoreMessage with multimodal content
+3. Add to in-memory messages array
+4. Save to disk via UserDataManager.addChatMessage()
+    ↓
+UserDataManager processes:
+    - Create ChatMessage with ID and timestamp
+    - Append to messages array
+    - Update session metadata
+    - Update response time metrics
+    - Write to disk (atomic operation)
+    ↓
+Stream AI response
+    ↓
+Save assistant message with response time
+    ↓
+Update UI with complete conversation
+```
+
+#### Session Switching Architecture
+```
+User selects session (ChatHistory UI)
+    ↓
+ChatHistoryContext.switchToSession()
+    ↓
+IPC call to main process
+    ↓
+UserDataManager.setCurrentSessionId()
+    - Update currentSessionId in history
+    - Update session.lastActiveAt
+    - Persist to disk
+    ↓
+LLMClient.loadCurrentUserMessages()
+    - Load session messages from UserDataManager
+    - Convert to CoreMessage format
+    - Send to renderer
+    ↓
+UI updates with session messages
+```
+
+### Integration Points
+
+#### User Account Integration
+- Complete chat history isolation per user
+- Automatic loading on user switch
+- Guest user history cleared on restart
+- Session IDs scoped to user accounts
+
+#### Activity Tracking Integration
+- Chat interactions recorded as activity data
+- Response times tracked for analytics
+- Context URLs linked to browsing history
+- Message patterns available for profiling
+
+#### LLMClient Integration
+- Automatic message persistence on send
+- Session metadata updated in real-time
+- Context preservation across sessions
+- In-memory message array synced with disk
+
+### Performance Characteristics
+
+#### Read Operations
+- **Load Sessions**: O(1) file read + O(n) session sort
+- **Load Messages**: O(1) file read + O(m) filter by sessionId
+- **Switch Session**: O(1) file write + message load
+
+#### Write Operations
+- **Add Message**: O(1) append + O(1) metadata update + O(1) file write
+- **Create Session**: O(1) append + O(1) file write
+- **Clear History**: O(1) file write (overwrite with empty)
+
+#### Optimizations
+- Lazy loading: Only current session messages in memory
+- Filtered display: Hide empty sessions in UI
+- Sorted sessions: Pre-sorted by lastActiveAt
+- Minimal IPC: Batch operations where possible
+
+### Security Model
+
+#### Data Protection
+- Local-only storage (no cloud sync)
+- User isolation through file system
+- No cross-user data access
+- Session IDs cryptographically random
+
+#### Privacy Features
+- Guest user automatic cleanup
+- Clear all history with confirmation
+- No external data transmission
+- Complete user control over data
+
+---
+
 ## User Account Management Architecture
 
 ### Overview

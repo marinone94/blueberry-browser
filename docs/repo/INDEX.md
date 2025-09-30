@@ -11,6 +11,9 @@ Comprehensive guide to Electron framework concepts and how Blueberry Browser imp
 
 - **Electron Framework Overview**: Multi-process architecture, security model, IPC communication
 - **Blueberry Implementation**: BaseWindow with WebContentsViews, process structure, component interactions
+- **Activity Tracking Architecture**: Multi-layered monitoring, buffered collection, daily persistence
+- **Chat History Architecture**: Session-based organization, metadata tracking, persistence flows
+- **User Account Management**: Complete isolation, session partitioning, data storage structure
 - **Development Workflow**: Hot reload, debugging strategies, adding new features
 - **Security & Performance**: Context isolation, memory management, resource optimization
 
@@ -38,6 +41,10 @@ End-to-end code execution traces for all major features:
 
 - **Core Browser**: Tab management, navigation, URL handling
 - **AI Chat**: Message sending, screenshot integration, content analysis, streaming responses
+- **Enhanced Chat History**: Session-based organization, metadata tracking, conversation management
+- **User Account Management**: Multi-user isolation, session partitioning, account switching
+- **Browsing History**: Per-user tracking, smart navigation, search and management
+- **Activity Tracking**: Comprehensive behavior monitoring, 13 activity types, buffered collection
 - **UI Features**: Dark mode synchronization, sidebar toggle, cross-process coordination
 - **Advanced Features**: JavaScript execution, screenshot capture, external link handling
 - **Performance**: Process isolation, memory management, error handling
@@ -124,7 +131,11 @@ blueberry-browser/
 
 ### Feature Coverage
 - ✅ **Multi-tab browsing** with process isolation
-- ✅ **AI-powered chat** with page context awareness
+- ✅ **AI-powered chat** with page context awareness and streaming responses
+- ✅ **Enhanced chat history** with session management and metadata tracking
+- ✅ **Multi-user accounts** with complete data isolation and session partitioning
+- ✅ **Per-user browsing history** with search and smart navigation
+- ✅ **Comprehensive activity tracking** with 13 activity types and buffered collection
 - ✅ **Screenshot integration** for visual AI analysis
 - ✅ **Dark mode synchronization** across all processes
 - ✅ **Native menu integration** with keyboard shortcuts
