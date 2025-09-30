@@ -669,6 +669,10 @@ export class UserDataManager {
     return join(this.getUserDataPath(userId), 'screenshots');
   }
 
+  private getRawHtmlDir(userId: string): string {
+    return join(this.getUserDataPath(userId), 'raw-html');
+  }
+
   private getLLMDebugLogsDir(userId: string): string {
     return join(this.getUserDataPath(userId), 'llm-debug-logs');
   }
@@ -892,6 +896,56 @@ export class UserDataManager {
         return null;
       }
       console.error('UserDataManager: Error reading screenshot:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Save raw HTML by hash
+   */
+  async saveRawHtml(
+    userId: string,
+    htmlHash: string,
+    html: string
+  ): Promise<string> {
+    try {
+      const htmlDir = this.getRawHtmlDir(userId);
+      await this.ensureDirectoryExists(htmlDir);
+
+      const filename = `${htmlHash}.html`;
+      const filePath = join(htmlDir, filename);
+
+      // Only save if doesn't already exist (deduplication)
+      try {
+        await fs.access(filePath);
+        console.log(`UserDataManager: HTML already exists for hash ${htmlHash}`);
+      } catch {
+        await fs.writeFile(filePath, html, 'utf-8');
+        console.log(`UserDataManager: Saved raw HTML with hash ${htmlHash}`);
+      }
+
+      return filePath;
+    } catch (error) {
+      console.error('UserDataManager: Error saving raw HTML:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get raw HTML by hash
+   */
+  async getRawHtml(userId: string, htmlHash: string): Promise<string | null> {
+    try {
+      const htmlDir = this.getRawHtmlDir(userId);
+      const filename = `${htmlHash}.html`;
+      const filePath = join(htmlDir, filename);
+
+      return await fs.readFile(filePath, 'utf-8');
+    } catch (error: any) {
+      if (error.code === 'ENOENT') {
+        return null;
+      }
+      console.error('UserDataManager: Error reading raw HTML:', error);
       return null;
     }
   }

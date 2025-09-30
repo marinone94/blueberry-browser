@@ -92,6 +92,7 @@ export class Tab {
     webContents.on("did-navigate", (_, url) => {
       const previousUrl = this._url;
       this._url = url;
+      console.log(`Tab.did-navigate: ${previousUrl} → ${url}, visible=${this._isVisible}`);
       this.recordHistoryEntry();
       
       // Track navigation event
@@ -111,16 +112,21 @@ export class Tab {
       this.scriptInjected = false;
       
       // Reset content analysis flag for new page
+      console.log(`Tab.did-navigate: Resetting hasAnalyzedThisPage flag for ${url}`);
       this.hasAnalyzedThisPage = false;
     });
 
     webContents.on("did-navigate-in-page", (_, url) => {
       this._url = url;
       this.recordHistoryEntry();
+      
+      // Reset content analysis flag for in-page navigation (e.g., SPAs, hash changes)
+      this.hasAnalyzedThisPage = false;
     });
 
     // Track successful page loads
     webContents.on("did-finish-load", () => {
+      console.log(`Tab.did-finish-load: URL=${this._url}, visible=${this._isVisible}`);
       this.recordHistoryEntry();
       
       // Track page visit
@@ -138,6 +144,14 @@ export class Tab {
       if (!this.scriptInjected) {
         this.injectActivityTrackingScript();
         this.scriptInjected = true;
+      }
+
+      // Trigger content analysis if tab is currently visible
+      console.log(`Tab.did-finish-load: Checking if should trigger analysis, visible=${this._isVisible}`);
+      if (this._isVisible) {
+        this.triggerContentAnalysis();
+      } else {
+        console.log(`Tab.did-finish-load: Skipping analysis - tab not visible`);
       }
     });
 
@@ -488,6 +502,13 @@ export class Tab {
     this.webContentsView.setVisible(true);
     this.recordHistoryEntry();
 
+    // Trigger content analysis when tab becomes visible
+    this.triggerContentAnalysis();
+  }
+
+  private triggerContentAnalysis(): void {
+    console.log(`Tab.triggerContentAnalysis: URL=${this._url}, hasAnalyzed=${this.hasAnalyzedThisPage}, visible=${this._isVisible}, hasAnalyzer=${!!this.contentAnalyzer}, hasCollector=${!!this.activityCollector}`);
+    
     // Trigger content analysis on first activation of this page
     if (!this.hasAnalyzedThisPage && this.contentAnalyzer && this.activityCollector) {
       this.hasAnalyzedThisPage = true;
@@ -498,10 +519,14 @@ export class Tab {
       // Generate activity ID for this page visit
       const activityId = `activity-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       
+      console.log(`Tab.triggerContentAnalysis: Triggering analysis for ${this._url} with activityId ${activityId}`);
+      
       // Trigger analysis asynchronously (don't await - let it run in background)
       this.contentAnalyzer.onPageVisit(activityId, this._url, userId, this).catch(error => {
         console.error('Content analysis failed:', error);
       });
+    } else {
+      console.log(`Tab.triggerContentAnalysis: Skipping analysis - already analyzed or missing dependencies`);
     }
   }
 

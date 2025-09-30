@@ -52,8 +52,7 @@ interface ContentAnalysisResult {
   // Text-based extractions
   pageDescription: string;
   rawText: ExtractedText;
-  rawHtml: string;
-  htmlHash: string;
+  htmlHash: string;  // Reference to raw-html/{hash}.html
 
   // Visual analysis
   screenshotDescription: string;
@@ -102,6 +101,13 @@ export class ContentAnalyzer {
   private model = openai('gpt-5-nano');
   private readonly modelName = 'gpt-5-nano';
   private readonly MAX_RETRIES = 3;
+  private readonly URL_BLACKLIST = [
+    'https://www.google.com',
+    'https://www.google.com/',
+    'about:blank',
+    'chrome://',
+    'file://'
+  ];
 
   constructor(userDataManager: UserDataManager, categoryManager: CategoryManager) {
     this.userDataManager = userDataManager;
@@ -246,6 +252,12 @@ export class ContentAnalyzer {
     try {
       console.log(`ContentAnalyzer: Page visit - ${url}`);
 
+      // Check if URL is blacklisted
+      if (this.isUrlBlacklisted(url)) {
+        console.log(`ContentAnalyzer: URL blacklisted, skipping analysis - ${url}`);
+        return;
+      }
+
       // Extract current page data
       const html = await tab.getTabHtml();
       if (!html || html.length === 0) {
@@ -276,17 +288,19 @@ export class ContentAnalyzer {
       }
 
       // Save screenshot for new analysis
-      const screenshotPath = await this.userDataManager.saveScreenshot(
+      await this.userDataManager.saveScreenshot(
         userId,
         activityId,
         screenshotBuffer
       );
 
+      // Save raw HTML to separate directory using hash
+      await this.userDataManager.saveRawHtml(userId, htmlHash, html);
+
       // Store the extracted data temporarily so it's available during queue processing
       // We'll create a temporary storage for this
       const tempData = {
         activityId,
-        html,
         htmlHash,
         extractedText,
         screenshotHash,
@@ -308,7 +322,7 @@ export class ContentAnalyzer {
     }
   }
 
-  private async saveTempAnalysisData(userId: string, activityId: string, data: any): Promise<void> {
+  private async saveTempAnalysisData(_userId: string, activityId: string, data: any): Promise<void> {
     try {
       const tempDir = join(app.getPath('userData'), 'users', 'temp-analysis');
       await fs.mkdir(tempDir, { recursive: true });
@@ -400,9 +414,7 @@ export class ContentAnalyzer {
                   { type: 'text', text: prompt }
                 ]
               }
-            ],
-            temperature: 0.3,
-            maxTokens: 1000
+            ]
           });
 
           // Collect streaming response
@@ -439,9 +451,7 @@ export class ContentAnalyzer {
                   role: 'user',
                   content: retryPrompt
                 }
-              ],
-              temperature: 0.1,
-              maxTokens: 1000
+              ]
             });
 
             rawResponse = '';
@@ -482,8 +492,7 @@ export class ContentAnalyzer {
         url: queueItem.url,
         pageDescription: llmResponse.pageDescription,
         rawText: extractedText,
-        rawHtml: tempData.html,
-        htmlHash: tempData.htmlHash,
+        htmlHash: tempData.htmlHash,  // Reference only, HTML stored separately
         screenshotDescription: llmResponse.screenshotDescription,
         screenshotPath: `screenshots/${queueItem.activityId}.png`,
         screenshotHash: tempData.screenshotHash,
@@ -568,7 +577,6 @@ export class ContentAnalyzer {
         fullText: '',
         textLength: 0
       },
-      rawHtml: '',
       htmlHash: '',
       screenshotDescription: '',
       screenshotPath: `screenshots/${queueItem.activityId}.png`,
@@ -737,6 +745,21 @@ Try again:`;
 
   private generateId(prefix: string): string {
     return `${prefix}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  private isUrlBlacklisted(url: string): boolean {
+    // Check exact matches
+    if (this.URL_BLACKLIST.includes(url)) {
+      return true;
+    }
+
+    // Check prefix matches (for chrome://, file://, etc.)
+    return this.URL_BLACKLIST.some(blacklisted => {
+      if (blacklisted.endsWith('://')) {
+        return url.startsWith(blacklisted);
+      }
+      return false;
+    });
   }
 
   // ============================================================================
