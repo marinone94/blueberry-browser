@@ -6,6 +6,7 @@ This document traces the complete code execution paths for each major feature in
 - [Core Browser Functionality](#core-browser-functionality)
 - [AI Chat Functionality](#ai-chat-functionality)
 - [Enhanced Chat History System](#enhanced-chat-history-system) (with vector embeddings & deletion)
+  - [Smart Chat Search](#smart-chat-search) (semantic & exact match with date filtering)
 - [Advanced Browser Features](#advanced-browser-features)
 - [User Account Management](#user-account-management)
 - [Activity Tracking System](#activity-tracking-system)
@@ -1227,6 +1228,7 @@ formatDuration(ms) → {
 - `sessions`: Array of all conversation sessions
 - `currentSessionId`: ID of active session
 - `isLoading`: Loading state for operations
+- `isSearching`: Loading state for search operations
 
 **Operations**:
 - `loadSessions()`: Refresh sessions list from storage
@@ -1234,6 +1236,8 @@ formatDuration(ms) → {
 - `createNewSession(title?)`: Create new conversation
 - `deleteSession(sessionId)`: Delete individual session with vector cleanup
 - `clearHistory()`: Delete all sessions with confirmation
+- `searchSessions(query, options)`: Search chat sessions with vector or exact match
+- `clearSearch()`: Clear search and reload all sessions
 
 **Automatic Data Refresh**:
 ```typescript
@@ -1407,6 +1411,261 @@ handleUserSwitch() → {
 - `clear-chat-history` - Delete all history with vector cleanup
 
 This enhanced chat history system provides a foundation for sophisticated conversation management and enables advanced features like conversation analysis, AI-powered summaries, semantic search, and proactive assistance based on chat patterns. All chat sessions are automatically indexed with vector embeddings for semantic search capabilities.
+
+### Smart Chat Search
+
+**Purpose**: Powerful semantic and exact match search across all chat conversations with advanced filtering
+
+**User Action**: Open chat history and use search bar to find conversations
+
+**Complete Flow**:
+
+1. **Search UI** (`ChatSearchBar.tsx`):
+   ```typescript
+   // User types in search bar
+   <input
+     value={query}
+     onChange={(e) => setQuery(e.target.value)}
+     placeholder='Search chats... (use "quotes" for exact match)'
+   />
+   
+   // Debounced search (500ms)
+   useEffect(() => {
+     const timer = setTimeout(() => {
+       setDebouncedQuery(query)
+     }, 500)
+     return () => clearTimeout(timer)
+   }, [query])
+   
+   // Trigger search when query or dates change
+   useEffect(() => {
+     if (debouncedQuery.trim() || dateFrom || dateTo) {
+       handleSearch()
+     } else {
+       onClear()
+     }
+   }, [debouncedQuery, dateFrom, dateTo])
+   ```
+
+2. **Search Mode Detection** (`ChatSearchBar.tsx`):
+   ```typescript
+   handleSearch() → {
+     const trimmedQuery = debouncedQuery.trim()
+     
+     // Check if query is surrounded by quotes for exact match
+     const exactMatch = trimmedQuery.startsWith('"') && trimmedQuery.endsWith('"')
+     const searchQuery = exactMatch 
+       ? trimmedQuery.slice(1, -1) // Remove quotes
+       : trimmedQuery
+     
+     const searchOptions = {
+       exactMatch,
+       dateFrom: dateFrom || undefined,
+       dateTo: dateTo || undefined
+     }
+     
+     onSearch(searchQuery, searchOptions)
+   }
+   ```
+
+3. **Context Processing** (`ChatHistoryContext.tsx`):
+   ```typescript
+   searchSessions(query, options) → {
+     setIsSearching(true)
+     
+     const results = await window.sidebarAPI.searchChatHistory(query, {
+       exactMatch: options.exactMatch,
+       dateFrom: options.dateFrom,
+       dateTo: options.dateTo,
+       limit: 50
+     })
+     
+     console.log('[ChatHistoryContext] Search completed:', {
+       resultsCount: results.length,
+       durationMs,
+       results: results.map(r => ({
+         id: r.id,
+         title: r.title,
+         score: r._searchScore,
+         matchType: r._matchType
+       }))
+     })
+     
+     setSessions(results)
+     setIsSearching(false)
+   }
+   ```
+
+4. **IPC Communication** (`EventManager.ts`):
+   ```typescript
+   ipcMain.handle('search-chat-history', async (_, query, options) → {
+     const currentUser = userAccountManager.getCurrentUser()
+     
+     return await vectorSearchManager.searchChatHistory(
+       currentUser.id,
+       query,
+       options
+     )
+   })
+   ```
+
+5. **Vector Search Execution** (`VectorSearchManager.ts`):
+   ```typescript
+   searchChatHistory(userId, query, options) → {
+     await ensureInitialized(userId)
+     
+     if (options.exactMatch) {
+       // Exact text matching in content field
+       let filter = `content LIKE '%${sanitizedQuery}%'`
+       
+       if (dateFrom) filter += ` AND timestamp >= '${dateFrom}'`
+       if (dateTo) filter += ` AND timestamp <= '${dateTo}'`
+       
+       results = await chatTable
+         .search()
+         .filter(filter)
+         .limit(limit)
+         .execute()
+       
+       // Group by session and aggregate
+       sessionMap = groupBySession(results)
+     } else {
+       // Semantic vector search
+       const queryEmbedding = await pipeline.embed(query)
+       
+       let filter = dateFrom || dateTo ? buildDateFilter() : undefined
+       
+       results = await chatTable
+         .search(queryEmbedding)
+         .filter(filter)
+         .limit(limit * 3)  // Get more for aggregation
+         .execute()
+       
+       // Group by session, calculate average score
+       sessionMap = groupBySessionWithScores(results)
+     }
+     
+     // Load full session metadata
+     const sessions = await Promise.all(
+       Array.from(sessionMap.entries()).map(async ([sessionId, data]) => {
+         const session = await loadSessionById(userId, sessionId)
+         return {
+           ...session,
+           _searchScore: data.averageScore,
+           _matchType: options.exactMatch ? 'exact' : 'semantic',
+           _matchedMessages: data.count
+         }
+       })
+     )
+     
+     return sessions.sort((a, b) => b._searchScore - a._searchScore)
+   }
+   ```
+
+**Search Features**:
+
+1. **Semantic Search** (default):
+   - Type natural language query
+   - Uses vector embeddings to find semantically similar messages
+   - Example: "mortgage rates" finds "home loan interest", "housing finance"
+   - Returns sessions ranked by relevance score
+
+2. **Exact Match Search**:
+   - Wrap query in quotes: `"specific phrase"`
+   - Finds exact text matches in message content
+   - Case-insensitive
+   - Useful for finding specific terms or code snippets
+
+3. **Date Range Filtering**:
+   - Click calendar icon to show date filters
+   - Filter by "From" date, "To" date, or both
+   - Works with both semantic and exact search
+   - Dates are inclusive
+
+4. **Smart Search Indicators**:
+   - "Smart semantic search" - Vector similarity search active
+   - "Exact match search" - Text matching active
+   - "Filtering by date" - Only date filters applied
+   - "Searching..." - Search in progress
+
+5. **Real-time Debouncing**:
+   - 500ms debounce prevents excessive searches
+   - Smooth typing experience
+   - Automatic search on input change
+
+6. **Clear Functionality**:
+   - X button appears when filters active
+   - Clears all search parameters
+   - Returns to full session list
+
+**UI Components**:
+
+1. **Search Input**:
+   ```typescript
+   <input
+     type="text"
+     placeholder='Search chats... (use "quotes" for exact match)'
+     className="w-full pl-10 pr-20 py-2 rounded-lg border"
+   />
+   ```
+
+2. **Date Range Filters** (expandable):
+   ```typescript
+   <div className="flex items-center gap-2">
+     <input type="date" value={dateFrom} />
+     <input type="date" value={dateTo} />
+   </div>
+   ```
+
+3. **Action Buttons**:
+   - Calendar icon (toggle date filters)
+   - X icon (clear search) - only shown when active
+
+**Search Result Display**:
+- Sessions returned by search replace the full session list
+- Each result shows:
+  - Session title
+  - Last active timestamp
+  - Message count
+  - Context URLs
+  - Relevance score (internal)
+  - Match type (semantic/exact)
+- Click to load session (same as normal history)
+
+**Performance Optimizations**:
+- Debounced input (500ms) reduces API calls
+- Vector search uses efficient approximate nearest neighbor
+- Results limited to 50 sessions
+- Exact match uses database text indexes
+- Session metadata cached in context
+
+**Key Functions Involved**:
+- `ChatSearchBar` - Search UI with debouncing and mode detection
+- `ChatHistoryContext.searchSessions()` - Coordinate search request
+- `ChatHistoryContext.clearSearch()` - Reset to full list
+- `VectorSearchManager.searchChatHistory()` - Execute vector or exact search
+- `VectorSearchManager.groupBySession()` - Aggregate message matches to sessions
+- `EventManager.search-chat-history` - IPC handler
+
+**Example Usage**:
+
+```typescript
+// Semantic search for mortgage information
+searchSessions("swedish home loans", { exactMatch: false })
+// Returns sessions discussing mortgages, even if they don't contain exact phrase
+
+// Exact match for specific code
+searchSessions('"useState hook"', { exactMatch: true })
+// Returns only sessions containing the exact phrase "useState hook"
+
+// Date-filtered search
+searchSessions("ai features", {
+  exactMatch: false,
+  dateFrom: "2025-09-01",
+  dateTo: "2025-09-30"
+})
+// Returns September conversations about AI features
+```
 
 ---
 

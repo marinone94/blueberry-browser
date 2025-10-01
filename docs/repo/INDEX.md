@@ -42,6 +42,7 @@ End-to-end code execution traces for all major features:
 - **Core Browser**: Tab management, navigation, URL handling
 - **AI Chat**: Message sending, screenshot integration, content analysis, streaming responses
 - **Enhanced Chat History**: Session-based organization, metadata tracking, conversation management
+- **Smart Chat Search**: Semantic & exact match search with date filtering, debounced input, vector embeddings
 - **User Account Management**: Multi-user isolation, session partitioning, account switching
 - **Browsing History**: Per-user tracking, smart navigation, search and management
 - **Activity Tracking**: Comprehensive behavior monitoring, 13 activity types, buffered collection

@@ -319,7 +319,7 @@ export class VectorSearchManager {
 
     try {
       // Delete all documents with this analysisId
-      await this.contentTable.delete(`analysisId = '${analysisId}'`);
+      await this.contentTable.delete(`"analysisId" = '${analysisId}'`);
       console.log(`VectorSearchManager: Deleted documents for analysis ${analysisId}`);
     } catch (error) {
       console.error(`VectorSearchManager: Failed to delete documents for analysis ${analysisId}:`, error);
@@ -339,7 +339,7 @@ export class VectorSearchManager {
     try {
       // Build filter for multiple IDs
       const filter = analysisIds
-        .map(id => `analysisId = '${id}'`)
+        .map(id => `"analysisId" = '${id}'`)
         .join(' OR ');
       
       await this.contentTable.delete(filter);
@@ -424,7 +424,28 @@ export class VectorSearchManager {
   // ============================================================================
 
   /**
+   * Extract text content from a message, handling multimodal content
+   * Filters out images and other non-text content
+   */
+  private extractTextContent(content: any): string {
+    if (typeof content === 'string') {
+      return content;
+    } else if (Array.isArray(content)) {
+      // Extract text from content parts, skip images
+      return content
+        .filter((part: any) => part.type === 'text')
+        .map((part: any) => part.text || '')
+        .join(' ');
+    } else if (typeof content === 'object' && content !== null) {
+      // Try to extract text property
+      return content.text || '';
+    }
+    return '';
+  }
+
+  /**
    * Generate a concise summary of a chat session using LLM
+   * Handles long conversations by truncating to fit context window
    */
   private async generateChatSummary(messages: Array<{ role: string; content: any }>): Promise<string> {
     try {
@@ -432,15 +453,47 @@ export class VectorSearchManager {
       const { openai } = await import('@ai-sdk/openai');
       const { generateText } = await import('ai');
       
+      // Truncate messages to fit context window
+      // Prioritize: first message + last N messages
+      const MAX_CHARS = 30000; // Leave room for prompt
+      const MAX_MESSAGE_CHARS = 1000; // Max chars per message
+      
+      // Extract text content from messages (filter out images!)
+      const textMessages = messages.map(m => ({
+        role: m.role,
+        text: this.extractTextContent(m.content)
+      }));
+      
       // Format conversation for summarization
-      const conversationText = messages
-        .map(m => {
-          const contentStr = typeof m.content === 'string' 
-            ? m.content 
-            : JSON.stringify(m.content);
-          return `${m.role}: ${contentStr}`;
-        })
+      let conversationText = textMessages
+        .map(m => `${m.role}: ${m.text}`)
         .join('\n\n');
+
+      // If too long, truncate intelligently
+      if (conversationText.length > MAX_CHARS) {
+        console.log(`VectorSearchManager: Conversation too long (${conversationText.length} chars), truncating...`);
+        
+        // Keep first message and most recent messages
+        const firstMsg = textMessages[0];
+        let recentMessages = textMessages.slice(-4); // Last 4 messages
+        
+        // If first message not in recent, add it
+        if (!recentMessages.some(m => m === firstMsg)) {
+          recentMessages = [firstMsg, ...recentMessages];
+        }
+        
+        conversationText = recentMessages
+          .map(m => {
+            // Truncate individual messages
+            const truncated = m.text.length > MAX_MESSAGE_CHARS 
+              ? m.text.substring(0, MAX_MESSAGE_CHARS) + '...' 
+              : m.text;
+            return `${m.role}: ${truncated}`;
+          })
+          .join('\n\n');
+        
+        console.log(`VectorSearchManager: Truncated to ${conversationText.length} chars`);
+      }
 
       const result = await generateText({
         model: openai('gpt-5-nano'),
@@ -452,8 +505,9 @@ export class VectorSearchManager {
       console.error('VectorSearchManager: Failed to generate chat summary:', error);
       // Fallback to first user message if summary fails
       const firstUserMsg = messages.find(m => m.role === 'user');
-      if (firstUserMsg && typeof firstUserMsg.content === 'string') {
-        return firstUserMsg.content.substring(0, 200);
+      if (firstUserMsg) {
+        const text = this.extractTextContent(firstUserMsg.content);
+        return text.substring(0, 200) || 'Chat session';
       }
       return 'Chat session';
     }
@@ -462,6 +516,7 @@ export class VectorSearchManager {
   /**
    * Index a complete chat session with embeddings for each message and a summary
    * Should be called when a session is deactivated (user switches away)
+   * Only indexes new messages that haven't been indexed yet
    */
   async indexChatSession(
     userId: string,
@@ -473,6 +528,7 @@ export class VectorSearchManager {
       timestamp: Date;
     }>
   ): Promise<void> {
+    console.log(`VectorSearchManager: [ENTRY] indexChatSession called for session ${sessionId} with ${messages.length} messages`);
     await this.ensureInitialized(userId);
 
     // Filter out system messages and only index user/assistant messages
@@ -482,12 +538,83 @@ export class VectorSearchManager {
       console.log(`VectorSearchManager: No messages to index for session ${sessionId}`);
       return;
     }
+    
+    console.log(`VectorSearchManager: Session ${sessionId} has ${indexableMessages.length} indexable messages`);
+
+    // Check which messages are already indexed
+    let existingMessageIds = new Set<string>();
+    let summaryExists = false;
+    
+    if (this.chatTable) {
+      try {
+        console.log(`VectorSearchManager: Checking for existing documents for session ${sessionId}...`);
+        
+        // Query existing documents for this specific session
+        // Use countRows first to check if table has any data
+        const totalRows = await this.chatTable.countRows();
+        console.log(`VectorSearchManager: Table has ${totalRows} total rows`);
+        
+        if (totalRows === 0) {
+          console.log(`VectorSearchManager: Table is empty, no existing documents`);
+        } else {
+          // Scan all rows and filter in JavaScript (not ideal but more reliable)
+          // For small tables this is acceptable
+          const allDocs: any[] = [];
+          const batchSize = 1000;
+          let offset = 0;
+          
+          while (offset < Math.min(totalRows, 10000)) {  // Max 10k docs to scan
+            const batch = await this.chatTable
+              .search(Array(384).fill(0))
+              .limit(batchSize)
+              .execute();
+            
+            if (!batch || batch.length === 0) break;
+            
+            // Filter for this session
+            const sessionDocs = batch.filter((doc: any) => doc.sessionId === sessionId);
+            allDocs.push(...sessionDocs);
+            
+            offset += batch.length;
+            if (batch.length < batchSize) break; // No more docs
+          }
+          
+          const existingDocs = allDocs;
+          console.log(`VectorSearchManager: Found ${existingDocs.length} documents for this session (scanned ${offset} total)`);
+          
+          for (const doc of existingDocs) {
+            if (doc.contentType === 'sessionSummary') {
+              summaryExists = true;
+              console.log(`VectorSearchManager: Found existing summary with id: ${doc.id}`);
+            } else if (doc.messageId && typeof doc.messageId === 'string') {
+              existingMessageIds.add(doc.messageId);
+              console.log(`VectorSearchManager: Found existing message: ${doc.messageId}`);
+            }
+          }
+        }
+        
+        console.log(`VectorSearchManager: Session ${sessionId} has ${existingMessageIds.size} indexed messages and ${summaryExists ? 'a' : 'no'} summary`);
+      } catch (error) {
+        console.error('VectorSearchManager: Error checking existing documents:', error);
+        console.log('VectorSearchManager: Assuming no existing documents due to error');
+        // If error, assume nothing is indexed yet
+      }
+    } else {
+      console.log(`VectorSearchManager: Chat table doesn't exist yet, will create on first insert`);
+    }
 
     const documents: IndexedChatDocument[] = [];
+    let newMessagesCount = 0;
 
-    // Index each user message
+    // Index only new messages
     for (const msg of indexableMessages) {
       if (msg.role === 'user' || msg.role === 'assistant') {
+        // Skip if already indexed
+        if (existingMessageIds.has(msg.id)) {
+          console.log(`VectorSearchManager: Skipping already indexed message: ${msg.id}`);
+          continue;
+        }
+
         // Extract text content from message (handle multimodal content)
         let textContent = '';
         if (typeof msg.content === 'string') {
@@ -515,29 +642,49 @@ export class VectorSearchManager {
           timestamp: msg.timestamp.toISOString(),
           vector: Array.from(embedding)
         });
+        newMessagesCount++;
       }
     }
 
-    // Generate and index session summary
-    try {
-      const summary = await this.generateChatSummary(
-        indexableMessages.map(m => ({ role: m.role, content: m.content }))
-      );
-      
-      const summaryEmbedding = await this.generateEmbedding(summary);
-      documents.push({
-        id: `${sessionId}-summary`,
-        sessionId,
-        userId,
-        contentType: 'sessionSummary',
-        content: summary,
-        timestamp: new Date().toISOString(),
-        vector: Array.from(summaryEmbedding)
-      });
+    // Only generate and index summary if:
+    // 1. Summary doesn't exist yet, OR
+    // 2. There are new messages to index
+    if (!summaryExists || newMessagesCount > 0) {
+      try {
+        const summary = await this.generateChatSummary(
+          indexableMessages.map(m => ({ role: m.role, content: m.content }))
+        );
+        
+        const summaryEmbedding = await this.generateEmbedding(summary);
+        
+        // If summary exists, we need to delete the old one first
+        if (summaryExists && this.chatTable) {
+          try {
+            console.log(`VectorSearchManager: Attempting to delete old summary with id: ${sessionId}-summary`);
+            await this.chatTable.delete(`"id" = '${sessionId}-summary'`);
+            console.log(`VectorSearchManager: Successfully deleted old summary for session ${sessionId}`);
+          } catch (error) {
+            console.error(`VectorSearchManager: FAILED to delete old summary for session ${sessionId}:`, error);
+            console.error('VectorSearchManager: This may cause duplicate summaries!');
+          }
+        }
+        
+        documents.push({
+          id: `${sessionId}-summary`,
+          sessionId,
+          userId,
+          contentType: 'sessionSummary',
+          content: summary,
+          timestamp: new Date().toISOString(),
+          vector: Array.from(summaryEmbedding)
+        });
 
-      console.log(`VectorSearchManager: Generated summary for session ${sessionId}: "${summary}"`);
-    } catch (error) {
-      console.error('VectorSearchManager: Failed to generate/index session summary:', error);
+        console.log(`VectorSearchManager: Generated ${summaryExists ? 'updated' : 'new'} summary for session ${sessionId}: "${summary}"`);
+      } catch (error) {
+        console.error('VectorSearchManager: Failed to generate/index session summary:', error);
+      }
+    } else {
+      console.log(`VectorSearchManager: Summary already exists and no new messages for session ${sessionId}, skipping summary generation`);
     }
 
     // Add documents to table
@@ -547,12 +694,14 @@ export class VectorSearchManager {
       if (!this.chatTable) {
         // Create table with first batch
         this.chatTable = await this.db.createTable('chat_history', records);
-        console.log(`VectorSearchManager: Created chat table with ${documents.length} documents`);
+        console.log(`VectorSearchManager: Created chat table with ${documents.length} documents (${newMessagesCount} messages, ${documents.length - newMessagesCount} summaries)`);
       } else {
         // Add to existing table
         await this.chatTable.add(records);
-        console.log(`VectorSearchManager: Indexed ${documents.length} documents for chat session ${sessionId}`);
+        console.log(`VectorSearchManager: Indexed ${documents.length} new documents for session ${sessionId} (${newMessagesCount} messages, ${documents.length - newMessagesCount} summaries)`);
       }
+    } else {
+      console.log(`VectorSearchManager: No new documents to index for session ${sessionId} - all messages already indexed`);
     }
   }
 
@@ -567,7 +716,7 @@ export class VectorSearchManager {
     }
 
     try {
-      await this.chatTable.delete(`sessionId = '${sessionId}'`);
+      await this.chatTable.delete(`"sessionId" = '${sessionId}'`);
       console.log(`VectorSearchManager: Deleted documents for chat session ${sessionId}`);
     } catch (error) {
       console.error(`VectorSearchManager: Failed to delete documents for session ${sessionId}:`, error);
@@ -586,7 +735,7 @@ export class VectorSearchManager {
 
     try {
       const filter = sessionIds
-        .map(id => `sessionId = '${id}'`)
+        .map(id => `"sessionId" = '${id}'`)
         .join(' OR ');
       
       await this.chatTable.delete(filter);
@@ -656,6 +805,47 @@ export class VectorSearchManager {
     } catch (error) {
       console.error('VectorSearchManager: Chat search failed:', error);
       return [];
+    }
+  }
+
+  /**
+   * Re-index all chat sessions for a user
+   * Useful after corruption or database reset
+   */
+  async reindexAllChatSessions(
+    userId: string,
+    userDataManager: any
+  ): Promise<void> {
+    console.log(`VectorSearchManager: Starting full re-index of chat sessions for user ${userId}`);
+    await this.ensureInitialized(userId);
+
+    try {
+      // Get all chat sessions
+      const history = await userDataManager.loadChatHistory(userId);
+      const sessions = history.sessions;
+
+      console.log(`VectorSearchManager: Found ${sessions.length} sessions to re-index`);
+
+      for (const session of sessions) {
+        if (session.messageCount === 0) continue;
+
+        try {
+          console.log(`VectorSearchManager: Re-indexing session ${session.id} (${session.messageCount} messages)`);
+          
+          // Load session messages
+          const messages = await userDataManager.getSessionMessages(userId, session.id);
+          
+          // Index the session
+          await this.indexChatSession(userId, session.id, messages);
+        } catch (error) {
+          console.error(`VectorSearchManager: Failed to re-index session ${session.id}:`, error);
+        }
+      }
+
+      console.log(`VectorSearchManager: Completed re-indexing ${sessions.length} chat sessions`);
+    } catch (error) {
+      console.error('VectorSearchManager: Re-index failed:', error);
+      throw error;
     }
   }
 

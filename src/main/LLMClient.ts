@@ -292,9 +292,12 @@ export class LLMClient {
   }
 
   async setCurrentSessionId(sessionId: string): Promise<void> {
-    // If we're switching away from a session, index it first
+    // If we're switching away from a session, index it asynchronously (don't block UI)
     if (this.currentSessionId && this.currentSessionId !== sessionId && this.currentUserId && this.window) {
-      await this.indexCurrentSession();
+      // Fire and forget - don't await to avoid blocking UI
+      this.indexCurrentSession().catch(error => {
+        console.error('LLMClient: Background indexing failed:', error);
+      });
     }
     
     this.currentSessionId = sessionId;

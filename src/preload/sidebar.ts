@@ -53,6 +53,13 @@ const sidebarAPI = {
   switchToSession: (sessionId: string) => electronAPI.ipcRenderer.invoke("switch-to-session", sessionId),
   deleteChatSession: (sessionId: string) => electronAPI.ipcRenderer.invoke("delete-chat-session", sessionId),
   clearChatHistory: () => electronAPI.ipcRenderer.invoke("clear-chat-history"),
+  searchChatHistory: (query: string, options?: {
+    exactMatch?: boolean;
+    dateFrom?: string;
+    dateTo?: string;
+    limit?: number;
+  }) => electronAPI.ipcRenderer.invoke("search-chat-history", query, options),
+  reindexAllChats: () => electronAPI.ipcRenderer.invoke("reindex-all-chats"),
 
   // Page content access
   getPageContent: () => electronAPI.ipcRenderer.invoke("get-page-content"),

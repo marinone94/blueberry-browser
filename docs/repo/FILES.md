@@ -514,6 +514,116 @@ userData/users/user-data/
 - **Uses**: ChatContext, react-markdown, remark plugins, Lucide icons
 - **Used by**: SidebarApp
 
+#### 📄 src/renderer/sidebar/src/components/ChatSearchBar.tsx
+**Purpose**: Smart search UI component for chat history with semantic and exact match modes
+
+**Key Features**:
+- **Dual Search Modes**: Semantic vector search (default) or exact text match (quotes)
+- **Date Range Filtering**: Optional from/to date filters with calendar UI
+- **Debounced Input**: 500ms debounce to prevent excessive searches
+- **Smart Indicators**: Visual feedback for search mode (semantic/exact/date-only)
+- **Auto-clear**: X button to clear all filters and return to full list
+
+**Props Interface**:
+```typescript
+{
+  onSearch: (query: string, options: {
+    exactMatch: boolean,
+    dateFrom?: string,
+    dateTo?: string
+  }) => void,
+  onClear: () => void,
+  isSearching: boolean
+}
+```
+
+**Search Mode Detection**:
+- Default: Semantic search using vector embeddings
+- Quotes: `"exact phrase"` triggers exact text matching
+- Automatically strips quotes from query before sending
+
+**UI Components**:
+- Search input with icon and placeholder
+- Calendar toggle button for date filters
+- Expandable date range inputs (from/to)
+- Clear button (visible when filters active)
+- Status text showing current search mode
+
+**Dependencies**:
+- **Uses**: React hooks (useState, useEffect), Lucide icons, cn utility
+- **Used by**: ChatHistory component
+
+#### 📄 src/renderer/sidebar/src/components/ChatHistory.tsx
+**Purpose**: Complete chat history management interface with search
+
+**Key Features**:
+- **Session List**: All conversation sessions with metadata
+- **Smart Search**: Integrated ChatSearchBar for semantic/exact search
+- **Session Management**: Create, switch, delete conversations
+- **Rich Metadata Display**: Message counts, timestamps, response times, context URLs
+- **Clear All**: Bulk deletion with confirmation
+
+**Session Display**:
+- Title with truncation
+- Current session badge
+- Last active timestamp (formatted)
+- Message count and average response time
+- Context URLs (up to 2 shown + "more" indicator)
+- Delete button (hover to reveal)
+
+**Actions**:
+- Click session → switch and load messages
+- New Chat button → create empty session
+- Delete button → confirm and remove session
+- Clear All History → bulk delete with confirmation
+- Search → filter sessions by content
+
+**Props Interface**:
+```typescript
+{
+  onClose: () => void,
+  onSelectSession: (sessionId: string) => void
+}
+```
+
+**Dependencies**:
+- **Uses**: ChatHistoryContext, ChatSearchBar, Button, cn utility
+- **Used by**: SidebarApp
+
+#### 📄 src/renderer/sidebar/src/contexts/ChatHistoryContext.tsx
+**Purpose**: React context for managing chat history state and search operations
+
+**State Management**:
+- `sessions`: Array of all conversation sessions
+- `currentSessionId`: Active session identifier
+- `isLoading`: Loading state for operations
+- `isSearching`: Loading state for search operations
+
+**Key Functions**:
+- `loadSessions()`: Refresh sessions list from storage
+- `switchToSession(sessionId)`: Change active session and load messages
+- `createNewSession(title?)`: Create new conversation
+- `deleteSession(sessionId)`: Delete session with vector cleanup
+- `clearHistory()`: Delete all sessions with confirmation
+- `searchSessions(query, options)`: Search with vector or exact match
+- `clearSearch()`: Clear search and reload all sessions
+
+**Search Integration**:
+- Calls `window.sidebarAPI.searchChatHistory()` for backend search
+- Supports semantic and exact match modes
+- Date range filtering support
+- Logs search performance metrics
+- Updates sessions state with ranked results
+
+**Auto-refresh**:
+- Loads sessions on mount
+- Filters out empty sessions (0 messages)
+- Sorts by relevance when searching
+
+**Dependencies**:
+- **Uses**: React (useState, useEffect, useCallback), sidebarAPI from preload
+- **Used by**: ChatHistory component, SidebarApp
+
 #### 📄 src/renderer/sidebar/src/contexts/HistoryContext.tsx
 **Purpose**: React context for managing browsing history state and operations
 

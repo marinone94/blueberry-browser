@@ -1,5 +1,6 @@
 import React from 'react'
 import { useChatHistory } from '../contexts/ChatHistoryContext'
+import { ChatSearchBar } from './ChatSearchBar'
 import { Button } from '@common/components/Button'
 import { cn } from '@common/lib/utils'
 
@@ -13,10 +14,13 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({ onClose, onSelectSessi
         sessions,
         currentSessionId,
         isLoading,
+        isSearching,
         switchToSession,
         createNewSession,
         clearHistory,
-        deleteSession
+        deleteSession,
+        searchSessions,
+        clearSearch
     } = useChatHistory()
 
     const handleNewChat = async () => {
@@ -77,30 +81,39 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({ onClose, onSelectSessi
     return (
         <div className="h-full flex flex-col bg-background">
             {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-border">
-                <div className="flex items-center gap-3">
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={onClose}
-                        className="h-8 w-8 p-0"
-                    >
-                        ←
-                    </Button>
-                    <div>
-                        <h2 className="text-lg font-semibold">Chats</h2>
-                        <p className="text-sm text-muted-foreground">
-                            {sessions.length} conversation{sessions.length !== 1 ? 's' : ''}
-                        </p>
+            <div className="p-4 border-b border-border space-y-3">
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={onClose}
+                            className="h-8 w-8 p-0"
+                        >
+                            ←
+                        </Button>
+                        <div>
+                            <h2 className="text-lg font-semibold">Chats</h2>
+                            <p className="text-sm text-muted-foreground">
+                                {sessions.length} conversation{sessions.length !== 1 ? 's' : ''}
+                            </p>
+                        </div>
                     </div>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleNewChat}
+                    >
+                        New Chat
+                    </Button>
                 </div>
-                <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleNewChat}
-                >
-                    New Chat
-                </Button>
+
+                {/* Search Bar */}
+                <ChatSearchBar
+                    onSearch={searchSessions}
+                    onClear={clearSearch}
+                    isSearching={isSearching}
+                />
             </div>
 
             {/* Sessions List */}

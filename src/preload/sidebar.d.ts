@@ -98,6 +98,13 @@ interface SidebarAPI {
   switchToSession: (sessionId: string) => Promise<void>;
   deleteChatSession: (sessionId: string) => Promise<void>;
   clearChatHistory: () => Promise<void>;
+  searchChatHistory: (query: string, options?: {
+    exactMatch?: boolean;
+    dateFrom?: string;
+    dateTo?: string;
+    limit?: number;
+  }) => Promise<ChatSession[]>;
+  reindexAllChats: () => Promise<{success: boolean, error?: string}>;
 
   // Page content access
   getPageContent: () => Promise<string | null>;
