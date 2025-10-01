@@ -80,6 +80,22 @@ Comprehensive guide to the multi-strategy cookie dialog detection:
 
 **Use this** for understanding and customizing the cookie dialog detection system.
 
+### [VECTOR_SEARCH_IMPLEMENTATION.md](./VECTOR_SEARCH_IMPLEMENTATION.md)
+**Vector Search & Semantic Embeddings**
+
+Complete guide to the local vector search implementation for browsing and chat history:
+
+- **Technology Stack**: LanceDB, Transformers.js, local embeddings (no API calls)
+- **Document Structure**: Separate embeddings for page content types and chat messages
+- **Indexing Flows**: Automatic indexing during content analysis and session deactivation
+- **Chat History Embedding**: Per-message embeddings with LLM-generated summaries
+- **Search API**: Semantic search across browsing content and conversations
+- **Cleanup & Management**: Automatic deletion when history is removed
+- **Privacy**: 100% local processing, no data leaves the device
+- **Performance**: Fast embeddings generation and sub-50ms search times
+
+**Use this** for understanding the vector search architecture and implementing semantic search features.
+
 ---
 
 ## 🚀 Quick Start
@@ -161,7 +177,8 @@ blueberry-browser/
 ### Feature Coverage
 - ✅ **Multi-tab browsing** with process isolation
 - ✅ **AI-powered chat** with page context awareness and streaming responses
-- ✅ **Enhanced chat history** with session management and metadata tracking
+- ✅ **Enhanced chat history** with session management, metadata tracking, and deletion
+- ✅ **Vector search & embeddings** for semantic search across browsing and chat history
 - ✅ **Multi-user accounts** with complete data isolation and session partitioning
 - ✅ **Per-user browsing history** with search and smart navigation
 - ✅ **Comprehensive activity tracking** with 13 activity types and buffered collection

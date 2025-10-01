@@ -51,6 +51,7 @@ const sidebarAPI = {
   getSessionMessages: (sessionId: string) => electronAPI.ipcRenderer.invoke("get-session-messages", sessionId),
   createChatSession: (contextUrl?: string, title?: string) => electronAPI.ipcRenderer.invoke("create-chat-session", contextUrl, title),
   switchToSession: (sessionId: string) => electronAPI.ipcRenderer.invoke("switch-to-session", sessionId),
+  deleteChatSession: (sessionId: string) => electronAPI.ipcRenderer.invoke("delete-chat-session", sessionId),
   clearChatHistory: () => electronAPI.ipcRenderer.invoke("clear-chat-history"),
 
   // Page content access

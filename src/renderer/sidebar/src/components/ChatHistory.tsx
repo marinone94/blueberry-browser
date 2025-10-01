@@ -15,7 +15,8 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({ onClose, onSelectSessi
         isLoading,
         switchToSession,
         createNewSession,
-        clearHistory
+        clearHistory,
+        deleteSession
     } = useChatHistory()
 
     const handleNewChat = async () => {
@@ -35,6 +36,19 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({ onClose, onSelectSessi
             onClose()
         } catch (error) {
             console.error('Failed to switch session:', error)
+        }
+    }
+
+    const handleDeleteSession = async (e: React.MouseEvent, sessionId: string) => {
+        e.stopPropagation() // Prevent triggering session selection
+        
+        const confirmed = confirm('Delete this conversation? This action cannot be undone.')
+        if (!confirmed) return
+
+        try {
+            await deleteSession(sessionId)
+        } catch (error) {
+            console.error('Failed to delete session:', error)
         }
     }
 
@@ -105,7 +119,7 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({ onClose, onSelectSessi
                             <div
                                 key={session.id}
                                 className={cn(
-                                    "p-4 border rounded-lg cursor-pointer transition-colors hover:bg-muted/50",
+                                    "p-4 border rounded-lg cursor-pointer transition-colors hover:bg-muted/50 group relative",
                                     currentSessionId === session.id ? "border-primary bg-primary/5" : "border-border"
                                 )}
                                 onClick={() => handleSelectSession(session.id)}
@@ -150,6 +164,16 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({ onClose, onSelectSessi
                                             )}
                                         </div>
                                     </div>
+                                    
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={(e) => handleDeleteSession(e, session.id)}
+                                        className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive hover:text-destructive-foreground"
+                                        title="Delete conversation"
+                                    >
+                                        🗑️
+                                    </Button>
                                 </div>
                             </div>
                         ))}

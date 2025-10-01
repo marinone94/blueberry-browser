@@ -2,6 +2,15 @@
 
 This document traces the complete code execution paths for each major feature in Blueberry Browser, showing how different components interact to deliver functionality.
 
+## Table of Contents
+- [Core Browser Functionality](#core-browser-functionality)
+- [AI Chat Functionality](#ai-chat-functionality)
+- [Enhanced Chat History System](#enhanced-chat-history-system) (with vector embeddings & deletion)
+- [Advanced Browser Features](#advanced-browser-features)
+- [User Account Management](#user-account-management)
+- [Activity Tracking System](#activity-tracking-system)
+- [Content Analysis System](#content-analysis-system)
+
 ---
 
 ## Core Browser Functionality
@@ -1074,6 +1083,89 @@ interface ChatHistory {
    }
    ```
 
+#### Deleting a Session
+
+**User Action**: Click trash button (🗑️) on session in chat history view
+
+**Complete Flow**:
+
+1. **UI Trigger** (`ChatHistory.tsx`):
+   ```typescript
+   handleDeleteSession(e, sessionId) → {
+     e.stopPropagation() // Prevent session selection
+     const confirmed = confirm('Delete this conversation?')
+     if (!confirmed) return
+     await deleteSession(sessionId)
+   }
+   ```
+
+2. **Context Processing** (`ChatHistoryContext.tsx`):
+   ```typescript
+   deleteSession(sessionId) → {
+     await window.sidebarAPI.deleteChatSession(sessionId)
+     
+     // If deleted current session, clear UI
+     if (currentSessionId === sessionId) {
+       await window.sidebarAPI.clearChat()
+       setCurrentSessionId(null)
+     }
+     
+     await loadSessions() // Refresh list
+   }
+   ```
+
+3. **IPC Handler** (`EventManager.ts`):
+   ```typescript
+   ipcMain.handle("delete-chat-session", async (_, sessionId) → {
+     const currentUser = userAccountManager.getCurrentUser()
+     await userDataManager.deleteChatSession(
+       currentUser.id,
+       sessionId,
+       vectorSearchManager // For embedding cleanup
+     )
+   })
+   ```
+
+4. **Session Deletion with Vector Cleanup** (`UserDataManager.ts`):
+   ```typescript
+   deleteChatSession(userId, sessionId, vectorSearchManager?) → {
+     const history = await loadChatHistory(userId)
+     
+     // Remove session and all its messages
+     history.sessions = history.sessions.filter(s => s.id !== sessionId)
+     const removedCount = history.messages.filter(m => m.sessionId === sessionId).length
+     history.messages = history.messages.filter(m => m.sessionId !== sessionId)
+     history.totalMessages -= removedCount
+     
+     // Clear current session if deleted
+     if (history.currentSessionId === sessionId) {
+       history.currentSessionId = null
+     }
+     
+     await saveChatHistory(userId, history)
+     
+     // Clean up vector embeddings
+     if (vectorSearchManager) {
+       await vectorSearchManager.deleteChatSessionDocuments(userId, sessionId)
+     }
+   }
+   ```
+
+5. **Vector Cleanup** (`VectorSearchManager.ts`):
+   ```typescript
+   deleteChatSessionDocuments(userId, sessionId) → {
+     await ensureInitialized(userId)
+     
+     // Delete all documents for this session
+     await chatTable.delete(`sessionId = '${sessionId}'`)
+     
+     // Removes:
+     // - All user message embeddings
+     // - All assistant message embeddings
+     // - Session summary embedding
+   }
+   ```
+
 ### Chat History UI Features
 
 #### Chat History View (`ChatHistory.tsx`)
@@ -1102,6 +1194,8 @@ interface ChatHistory {
    
    - **Interaction**:
      - Click to switch to session
+     - Hover to reveal delete button (🗑️)
+     - Delete button with confirmation dialog
      - Automatic close after selection
 
 3. **Empty State**:
@@ -1138,6 +1232,7 @@ formatDuration(ms) → {
 - `loadSessions()`: Refresh sessions list from storage
 - `switchToSession(sessionId)`: Change active session
 - `createNewSession(title?)`: Create new conversation
+- `deleteSession(sessionId)`: Delete individual session with vector cleanup
 - `clearHistory()`: Delete all sessions with confirmation
 
 **Automatic Data Refresh**:
@@ -1270,7 +1365,8 @@ handleUserSwitch() → {
 
 #### Deletion & Cleanup
 - **Clear All**: Delete all sessions and messages with confirmation
-- **Per-Session Delete**: (Future feature) Delete individual sessions
+- **Per-Session Delete**: ✅ Delete individual sessions with trash button on hover
+- **Vector Cleanup**: ✅ Automatic cleanup of embeddings when sessions are deleted
 - **Automatic Cleanup**: Old sessions can be archived (future feature)
 - **Guest Clearing**: Automatic cleanup on app restart
 
@@ -1281,12 +1377,20 @@ handleUserSwitch() → {
 - `UserDataManager.setCurrentSessionId()` - Switch sessions
 - `UserDataManager.getChatSessions()` - Retrieve all sessions
 - `UserDataManager.getCurrentSessionId()` - Get active session
+- `UserDataManager.deleteChatSession()` - Delete session with vector cleanup
+- `UserDataManager.deleteMultipleChatSessions()` - Batch delete sessions
 
 **Message Management**:
 - `UserDataManager.addChatMessage()` - Save message with metadata
 - `UserDataManager.getSessionMessages()` - Load session messages
 - `LLMClient.sendChatMessage()` - Send message with history tracking
 - `LLMClient.loadCurrentUserMessages()` - Load messages on session change
+- `LLMClient.indexCurrentSession()` - Generate embeddings on session deactivation
+
+**Vector Search & Embeddings**:
+- `VectorSearchManager.indexChatSession()` - Index messages and generate summary
+- `VectorSearchManager.deleteChatSessionDocuments()` - Remove session embeddings
+- `VectorSearchManager.searchChatHistory()` - Semantic search across chats
 
 **UI Components**:
 - `ChatHistory.tsx` - Chat history interface
@@ -1298,10 +1402,11 @@ handleUserSwitch() → {
 - `get-chat-sessions` - Load all sessions
 - `get-session-messages` - Load specific session
 - `create-chat-session` - Create new session
-- `switch-to-session` - Change active session
-- `clear-chat-history` - Delete all history
+- `switch-to-session` - Change active session (triggers embedding of old session)
+- `delete-chat-session` - Delete individual session with vector cleanup
+- `clear-chat-history` - Delete all history with vector cleanup
 
-This enhanced chat history system provides a foundation for sophisticated conversation management and enables advanced features like conversation analysis, AI-powered summaries, and proactive assistance based on chat patterns.
+This enhanced chat history system provides a foundation for sophisticated conversation management and enables advanced features like conversation analysis, AI-powered summaries, semantic search, and proactive assistance based on chat patterns. All chat sessions are automatically indexed with vector embeddings for semantic search capabilities.
 
 ---
 

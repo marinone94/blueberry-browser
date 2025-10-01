@@ -6,6 +6,7 @@ import { streamText } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import type { UserDataManager } from './UserDataManager';
 import type { CategoryManager } from './CategoryManager';
+import type { VectorSearchManager } from './VectorSearchManager';
 import type { Tab } from './Tab';
 
 // ============================================================================
@@ -95,6 +96,7 @@ interface LLMAnalysisResponse {
 export class ContentAnalyzer {
   private userDataManager: UserDataManager;
   private categoryManager: CategoryManager;
+  private vectorSearchManager: VectorSearchManager;
   private queue: AnalysisQueueItem[] = [];
   private queuePath: string;
   private isProcessing: boolean = false;
@@ -109,9 +111,14 @@ export class ContentAnalyzer {
     'file://'
   ];
 
-  constructor(userDataManager: UserDataManager, categoryManager: CategoryManager) {
+  constructor(
+    userDataManager: UserDataManager,
+    categoryManager: CategoryManager,
+    vectorSearchManager: VectorSearchManager
+  ) {
     this.userDataManager = userDataManager;
     this.categoryManager = categoryManager;
+    this.vectorSearchManager = vectorSearchManager;
 
     const userDataPath = app.getPath('userData');
     this.queuePath = join(userDataPath, 'users', 'analysis-queue.json');
@@ -514,6 +521,26 @@ export class ContentAnalyzer {
       // Update index
       const indexKey = `${queueItem.url}:${analysisResult.htmlHash}:${analysisResult.screenshotHash}`;
       await this.userDataManager.updateAnalysisIndex(queueItem.userId, indexKey, analysisId);
+
+      // Index content in vector database
+      try {
+        await this.vectorSearchManager.indexContentAnalysis(
+          analysisId,
+          queueItem.userId,
+          queueItem.url,
+          analysisResult.timestamp,
+          {
+            pageDescription: analysisResult.pageDescription,
+            title: analysisResult.rawText.title,
+            metaDescription: analysisResult.rawText.metaDescription,
+            screenshotDescription: analysisResult.screenshotDescription
+          }
+        );
+        console.log(`ContentAnalyzer: Vector indexed ${analysisId}`);
+      } catch (vectorError) {
+        // Don't fail the entire analysis if vector indexing fails
+        console.error('ContentAnalyzer: Vector indexing failed:', vectorError);
+      }
 
       // Save LLM debug log
       await this.userDataManager.saveLLMDebugLog(queueItem.userId, {
