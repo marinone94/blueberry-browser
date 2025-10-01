@@ -7,7 +7,7 @@ export type HistoryCallback = (entry: {
   title: string;
   visitedAt: Date;
   favicon?: string;
-}) => void;
+}) => Promise<{ id: string; analysisId?: string } | undefined>;
 
 export class Tab {
   private webContentsView: WebContentsView;
@@ -24,6 +24,7 @@ export class Tab {
   private lastBlurTime: number = 0;
   private scriptInjected: boolean = false;
   private hasAnalyzedThisPage: boolean = false;
+  private currentHistoryEntryId: string | undefined;
   private pageInteractionData: {
     clickCount: number;
     keyboardEvents: number;
@@ -184,31 +185,39 @@ export class Tab {
     });
   }
 
-  private recordHistoryEntry(): void {
+  private async recordHistoryEntry(): Promise<void> {
     // Only record history for visible/active tabs
     if (this.historyCallback && this._url && this._isVisible && 
         !this._url.startsWith('chrome://') && !this._url.startsWith('about:')) {
-      // Get favicon if available
-      this.webContentsView.webContents.executeJavaScript(`
-        (function() {
-          const link = document.querySelector('link[rel*="icon"]');
-          return link ? link.href : null;
-        })();
-      `).then(favicon => {
-        this.historyCallback!({
+      try {
+        // Get favicon if available
+        let favicon: string | null = null;
+        try {
+          favicon = await this.webContentsView.webContents.executeJavaScript(`
+            (function() {
+              const link = document.querySelector('link[rel*="icon"]');
+              return link ? link.href : null;
+            })();
+          `);
+        } catch {
+          // Ignore favicon errors
+        }
+
+        const historyEntry = await this.historyCallback({
           url: this._url,
           title: this._title || this._url,
           visitedAt: new Date(),
           favicon: favicon || undefined
         });
-      }).catch(() => {
-        // Fallback without favicon
-        this.historyCallback!({
-          url: this._url,
-          title: this._title || this._url,
-          visitedAt: new Date()
-        });
-      });
+
+        // Store the history entry ID for linking to content analysis
+        if (historyEntry) {
+          this.currentHistoryEntryId = historyEntry.id;
+          console.log(`Tab: Recorded history entry ${historyEntry.id} for ${this._url}`);
+        }
+      } catch (error) {
+        console.error('Tab: Failed to record history entry:', error);
+      }
     }
   }
 
@@ -239,6 +248,10 @@ export class Tab {
 
   get sessionPartition(): string {
     return this._sessionPartition;
+  }
+
+  get currentHistoryId(): string | undefined {
+    return this.currentHistoryEntryId;
   }
 
   // Activity tracking methods
