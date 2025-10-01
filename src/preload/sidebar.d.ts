@@ -96,6 +96,7 @@ interface SidebarAPI {
   getSessionMessages: (sessionId: string) => Promise<ChatMessage[]>;
   createChatSession: (contextUrl?: string, title?: string) => Promise<string>;
   switchToSession: (sessionId: string) => Promise<void>;
+  deleteChatSession: (sessionId: string) => Promise<void>;
   clearChatHistory: () => Promise<void>;
 
   // Page content access

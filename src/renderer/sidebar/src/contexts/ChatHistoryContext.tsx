@@ -20,6 +20,7 @@ interface ChatHistoryContextType {
     loadSessions: () => Promise<void>
     switchToSession: (sessionId: string) => Promise<void>
     createNewSession: (title?: string) => Promise<string>
+    deleteSession: (sessionId: string) => Promise<void>
     clearHistory: () => Promise<void>
 }
 
@@ -81,6 +82,26 @@ export const ChatHistoryProvider: React.FC<{ children: React.ReactNode }> = ({ c
         }
     }, [loadSessions])
 
+    const deleteSession = useCallback(async (sessionId: string) => {
+        setIsLoading(true)
+        try {
+            await window.sidebarAPI.deleteChatSession(sessionId)
+            
+            // If we deleted the current session, clear the current chat
+            if (currentSessionId === sessionId) {
+                await window.sidebarAPI.clearChat()
+                setCurrentSessionId(null)
+            }
+            
+            // Reload sessions to update the list
+            await loadSessions()
+        } catch (error) {
+            console.error('Failed to delete session:', error)
+        } finally {
+            setIsLoading(false)
+        }
+    }, [currentSessionId, loadSessions])
+
     const clearHistory = useCallback(async () => {
         const confirmed = confirm('Are you sure you want to clear all chat history? This cannot be undone.')
         if (!confirmed) return
@@ -109,6 +130,7 @@ export const ChatHistoryProvider: React.FC<{ children: React.ReactNode }> = ({ c
         loadSessions,
         switchToSession,
         createNewSession,
+        deleteSession,
         clearHistory
     }
 

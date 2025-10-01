@@ -344,6 +344,84 @@ export class UserDataManager {
   }
 
   /**
+   * Delete a chat session and all its messages
+   */
+  async deleteChatSession(
+    userId: string,
+    sessionId: string,
+    vectorSearchManager?: any // VectorSearchManager type to avoid circular dependency
+  ): Promise<void> {
+    const history = await this.loadChatHistory(userId);
+    
+    // Remove session
+    history.sessions = history.sessions.filter(s => s.id !== sessionId);
+    
+    // Remove all messages for this session
+    const removedMessagesCount = history.messages.filter(m => m.sessionId === sessionId).length;
+    history.messages = history.messages.filter(m => m.sessionId !== sessionId);
+    history.totalMessages -= removedMessagesCount;
+    
+    // If this was the current session, clear it
+    if (history.currentSessionId === sessionId) {
+      history.currentSessionId = null;
+    }
+    
+    history.updatedAt = new Date();
+    await this.saveChatHistory(userId, history);
+    
+    // Delete associated vector documents
+    if (vectorSearchManager) {
+      try {
+        await vectorSearchManager.deleteChatSessionDocuments(userId, sessionId);
+      } catch (error) {
+        console.error('UserDataManager: Failed to clean up vector documents for chat session:', error);
+      }
+    }
+    
+    console.log(`UserDataManager: Deleted chat session ${sessionId} with ${removedMessagesCount} messages`);
+  }
+
+  /**
+   * Delete multiple chat sessions (batch operation)
+   */
+  async deleteMultipleChatSessions(
+    userId: string,
+    sessionIds: string[],
+    vectorSearchManager?: any
+  ): Promise<void> {
+    if (sessionIds.length === 0) return;
+    
+    const history = await this.loadChatHistory(userId);
+    
+    // Remove sessions
+    history.sessions = history.sessions.filter(s => !sessionIds.includes(s.id));
+    
+    // Remove all messages for these sessions
+    const removedMessagesCount = history.messages.filter(m => sessionIds.includes(m.sessionId)).length;
+    history.messages = history.messages.filter(m => !sessionIds.includes(m.sessionId));
+    history.totalMessages -= removedMessagesCount;
+    
+    // If current session was deleted, clear it
+    if (history.currentSessionId && sessionIds.includes(history.currentSessionId)) {
+      history.currentSessionId = null;
+    }
+    
+    history.updatedAt = new Date();
+    await this.saveChatHistory(userId, history);
+    
+    // Delete associated vector documents
+    if (vectorSearchManager) {
+      try {
+        await vectorSearchManager.deleteMultipleChatSessions(userId, sessionIds);
+      } catch (error) {
+        console.error('UserDataManager: Failed to clean up vector documents for chat sessions:', error);
+      }
+    }
+    
+    console.log(`UserDataManager: Deleted ${sessionIds.length} chat sessions with ${removedMessagesCount} messages`);
+  }
+
+  /**
    * Tab State Management
    */
   async saveUserTabs(userId: string, tabs: UserTabState[]): Promise<void> {
@@ -414,14 +492,53 @@ export class UserDataManager {
     return await this.loadUserFile(userId, "browsing-history.json", []);
   }
 
-  async clearBrowsingHistory(userId: string): Promise<void> {
+  async clearBrowsingHistory(
+    userId: string,
+    vectorSearchManager?: any // VectorSearchManager type to avoid circular dependency
+  ): Promise<void> {
+    // If vector search manager is provided, get all analysis IDs before clearing
+    if (vectorSearchManager) {
+      try {
+        const allAnalysisIds = await this.getAllAnalysisIds(userId);
+        if (allAnalysisIds.length > 0) {
+          await vectorSearchManager.deleteMultipleAnalyses(userId, allAnalysisIds);
+        }
+      } catch (error) {
+        console.error('UserDataManager: Failed to clean up vector documents:', error);
+      }
+    }
+    
     await this.saveBrowsingHistory(userId, []);
   }
 
-  async removeHistoryEntry(userId: string, entryId: string): Promise<void> {
+  // TODO: use history_id instead of url to cleanup vector documents
+  async removeHistoryEntry(
+    userId: string, 
+    entryId: string,
+    vectorSearchManager?: any // VectorSearchManager type to avoid circular dependency
+  ): Promise<void> {
     const history = await this.loadBrowsingHistory(userId);
+    
+    // Find the entry to get its URL for analysis lookup
+    const entryToRemove = history.find(entry => entry.id === entryId);
+    
     const filteredHistory = history.filter(entry => entry.id !== entryId);
     await this.saveBrowsingHistory(userId, filteredHistory);
+    
+    // If vector search manager is provided, delete associated vector documents
+    if (vectorSearchManager && entryToRemove) {
+      try {
+        // Find all analyses for this URL
+        const analysisIds = await this.getAnalysisIdsForUrl(userId, entryToRemove.url);
+        
+        // Delete vector documents for these analyses
+        if (analysisIds.length > 0) {
+          await vectorSearchManager.deleteMultipleAnalyses(userId, analysisIds);
+        }
+      } catch (error) {
+        console.error('UserDataManager: Failed to clean up vector documents:', error);
+      }
+    }
   }
 
   async searchHistory(userId: string, query: string, limit: number = 50): Promise<BrowsingHistoryEntry[]> {
@@ -947,6 +1064,64 @@ export class UserDataManager {
       }
       console.error('UserDataManager: Error reading raw HTML:', error);
       return null;
+    }
+  }
+
+  /**
+   * Get all analysis IDs for a specific URL
+   */
+  async getAnalysisIdsForUrl(userId: string, url: string): Promise<string[]> {
+    try {
+      const analysisDir = this.getContentAnalysisDir(userId);
+      const files = await fs.readdir(analysisDir);
+      const analysisIds: string[] = [];
+      
+      for (const file of files) {
+        if (file.endsWith('.json') && file !== 'index.json') {
+          const filePath = join(analysisDir, file);
+          const data = await fs.readFile(filePath, 'utf-8');
+          const analyses = JSON.parse(data);
+          
+          for (const analysis of analyses) {
+            if (analysis.url === url) {
+              analysisIds.push(analysis.analysisId);
+            }
+          }
+        }
+      }
+      
+      return analysisIds;
+    } catch (error) {
+      console.error('UserDataManager: Error getting analysis IDs for URL:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get all analysis IDs for a user
+   */
+  async getAllAnalysisIds(userId: string): Promise<string[]> {
+    try {
+      const analysisDir = this.getContentAnalysisDir(userId);
+      const files = await fs.readdir(analysisDir);
+      const analysisIds: string[] = [];
+      
+      for (const file of files) {
+        if (file.endsWith('.json') && file !== 'index.json') {
+          const filePath = join(analysisDir, file);
+          const data = await fs.readFile(filePath, 'utf-8');
+          const analyses = JSON.parse(data);
+          
+          for (const analysis of analyses) {
+            analysisIds.push(analysis.analysisId);
+          }
+        }
+      }
+      
+      return analysisIds;
+    } catch (error) {
+      console.error('UserDataManager: Error getting all analysis IDs:', error);
+      return [];
     }
   }
 

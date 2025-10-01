@@ -291,8 +291,45 @@ export class LLMClient {
     return this.messages;
   }
 
-  setCurrentSessionId(sessionId: string): void {
+  async setCurrentSessionId(sessionId: string): Promise<void> {
+    // If we're switching away from a session, index it first
+    if (this.currentSessionId && this.currentSessionId !== sessionId && this.currentUserId && this.window) {
+      await this.indexCurrentSession();
+    }
+    
     this.currentSessionId = sessionId;
+  }
+
+  /**
+   * Index the current session's messages for semantic search
+   */
+  private async indexCurrentSession(): Promise<void> {
+    if (!this.currentSessionId || !this.currentUserId || !this.window) {
+      return;
+    }
+
+    try {
+      // Load session messages with full metadata
+      const sessionMessages = await this.window.userDataManager.getSessionMessages(
+        this.currentUserId,
+        this.currentSessionId
+      );
+
+      // Only index if there are messages
+      if (sessionMessages.length > 0) {
+        console.log(`LLMClient: Indexing ${sessionMessages.length} messages from session ${this.currentSessionId}`);
+        
+        await this.window.vectorSearchManager.indexChatSession(
+          this.currentUserId,
+          this.currentSessionId,
+          sessionMessages
+        );
+        
+        console.log(`LLMClient: Successfully indexed session ${this.currentSessionId}`);
+      }
+    } catch (error) {
+      console.error(`LLMClient: Failed to index session ${this.currentSessionId}:`, error);
+    }
   }
 
   setMessages(messages: CoreMessage[]): void {

@@ -7,6 +7,7 @@ import { UserDataManager, type UserTabState } from "./UserDataManager";
 import { ActivityCollector } from "./ActivityCollector";
 import { ContentAnalyzer } from "./ContentAnalyzer";
 import { CategoryManager } from "./CategoryManager";
+import { VectorSearchManager } from "./VectorSearchManager";
 
 export class Window {
   private _baseWindow!: BaseWindow;
@@ -21,6 +22,7 @@ export class Window {
   private _activityCollector?: ActivityCollector;
   private _contentAnalyzer!: ContentAnalyzer;
   private _categoryManager!: CategoryManager;
+  private _vectorSearchManager!: VectorSearchManager;
 
   private constructor() {
     // Private constructor - use Window.create() instead
@@ -57,8 +59,15 @@ export class Window {
     this._categoryManager = new CategoryManager();
     await this._categoryManager.load();
 
+    // Initialize vector search manager
+    this._vectorSearchManager = new VectorSearchManager();
+
     // Initialize content analyzer
-    this._contentAnalyzer = new ContentAnalyzer(this._userDataManager, this._categoryManager);
+    this._contentAnalyzer = new ContentAnalyzer(
+      this._userDataManager, 
+      this._categoryManager,
+      this._vectorSearchManager
+    );
 
     this._topBar = new TopBar(this._baseWindow);
     this._sideBar = new SideBar(this._baseWindow);
@@ -445,6 +454,10 @@ export class Window {
 
   get userDataManager(): UserDataManager {
     return this._userDataManager;
+  }
+
+  get vectorSearchManager(): VectorSearchManager {
+    return this._vectorSearchManager;
   }
 
   /**

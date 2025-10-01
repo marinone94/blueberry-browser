@@ -217,11 +217,11 @@ export class EventManager {
       const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
       if (!currentUser) return;
       
+      // Update LLMClient's current session (this will trigger indexing of the old session)
+      await this.mainWindow.sidebar.client.setCurrentSessionId(sessionId);
+      
       // Set current session ID in user data manager
       await this.mainWindow.userDataManager.setCurrentSessionId(currentUser.id, sessionId);
-      
-      // Update LLMClient's current session
-      this.mainWindow.sidebar.client.setCurrentSessionId(sessionId);
       
       // Load messages for this session and convert to CoreMessage format for display
       const sessionMessages = await this.mainWindow.userDataManager.getSessionMessages(currentUser.id, sessionId);
@@ -237,9 +237,30 @@ export class EventManager {
       this.mainWindow.sidebar.client.setMessages(coreMessages);
     });
 
+    ipcMain.handle("delete-chat-session", async (_, sessionId: string) => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return;
+      
+      await this.mainWindow.userDataManager.deleteChatSession(
+        currentUser.id,
+        sessionId,
+        this.mainWindow.vectorSearchManager
+      );
+    });
+
     ipcMain.handle("clear-chat-history", async () => {
       const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
       if (!currentUser) return;
+      
+      // Get all session IDs before clearing
+      const history = await this.mainWindow.userDataManager.loadChatHistory(currentUser.id);
+      const sessionIds = history.sessions.map(s => s.id);
+      
+      // Delete vector documents for all sessions
+      if (sessionIds.length > 0) {
+        await this.mainWindow.vectorSearchManager.deleteMultipleChatSessions(currentUser.id, sessionIds);
+      }
+      
       await this.mainWindow.userDataManager.clearChatHistory(currentUser.id);
     });
   }
