@@ -76,6 +76,10 @@ export class SideBar {
     return this.webContentsView;
   }
 
+  get webContents() {
+    return this.webContentsView.webContents;
+  }
+
   get client(): LLMClient {
     return this.llmClient;
   }

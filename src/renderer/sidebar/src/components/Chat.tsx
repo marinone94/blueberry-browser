@@ -301,16 +301,17 @@ export const Chat: React.FC<ChatProps> = ({ onShowHistory }) => {
 
     return (
         <div className="flex flex-col h-full bg-background">
-            {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto">
-                <div className="h-8 max-w-3xl mx-auto px-4 flex items-center justify-between">
-                    {/* New Chat Button - Floating */}
+            {/* Top Navigation Bar - Sticky */}
+            <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border-b border-border">
+                <div className="h-12 max-w-3xl mx-auto px-4 flex items-center justify-between">
+                    {/* New Chat Button */}
                     <div className="flex-1">
                         {messages.length > 0 && (
                             <Button
                                 onClick={clearChat}
                                 title="Start new chat"
                                 variant="ghost"
+                                size="sm"
                             >
                                 <Plus className="size-4" />
                                 New Chat
@@ -340,7 +341,10 @@ export const Chat: React.FC<ChatProps> = ({ onShowHistory }) => {
                         </Button>
                     </div>
                 </div>
+            </div>
 
+            {/* Messages Area */}
+            <div className="flex-1 overflow-y-auto">
                 <div className="pb-4 relative max-w-3xl mx-auto px-4">
 
                     {messages.length === 0 ? (

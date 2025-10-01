@@ -263,6 +263,227 @@ export class EventManager {
       
       await this.mainWindow.userDataManager.clearChatHistory(currentUser.id);
     });
+
+    ipcMain.handle("reindex-all-chats", async () => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) {
+        console.log('[EventManager] No current user, cannot re-index');
+        return { success: false, error: 'No current user' };
+      }
+
+      try {
+        console.log('[EventManager] Starting full chat re-index...');
+        await this.mainWindow.vectorSearchManager.reindexAllChatSessions(
+          currentUser.id,
+          this.mainWindow.userDataManager
+        );
+        console.log('[EventManager] Chat re-index completed successfully');
+        return { success: true };
+      } catch (error) {
+        console.error('[EventManager] Chat re-index failed:', error);
+        return { success: false, error: String(error) };
+      }
+    });
+
+    ipcMain.handle("search-chat-history", async (_, query: string, options?: {
+      exactMatch?: boolean;
+      dateFrom?: string;
+      dateTo?: string;
+      limit?: number;
+    }) => {
+      const startTime = Date.now();
+      console.log(`[EventManager] Chat history search requested:`, {
+        query,
+        options,
+        timestamp: new Date().toISOString()
+      });
+
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) {
+        console.log('[EventManager] No current user, returning empty results');
+        return [];
+      }
+
+      const limit = options?.limit || 20;
+      const exactMatch = options?.exactMatch || false;
+      
+      try {
+        // Load all sessions and messages
+        const history = await this.mainWindow.userDataManager.loadChatHistory(currentUser.id);
+        let sessions = history.sessions;
+        console.log(`[EventManager] Loaded ${sessions.length} sessions for user ${currentUser.id}`);
+        
+        // Filter by date range if provided
+        if (options?.dateFrom || options?.dateTo) {
+          const dateFrom = options.dateFrom ? new Date(options.dateFrom) : null;
+          const dateTo = options.dateTo ? new Date(options.dateTo) : null;
+          
+          sessions = sessions.filter(session => {
+            const sessionDate = new Date(session.lastActiveAt);
+            if (dateFrom && sessionDate < dateFrom) return false;
+            if (dateTo && sessionDate > dateTo) return false;
+            return true;
+          });
+        }
+
+        // If query is empty, return date-filtered sessions
+        if (!query.trim()) {
+          console.log(`[EventManager] Empty query, returning ${Math.min(sessions.length, limit)} date-filtered sessions`);
+          return sessions.slice(0, limit);
+        }
+
+        console.log(`[EventManager] Search mode: ${exactMatch ? 'EXACT' : 'SEMANTIC'}`);
+
+        const queryLower = query.toLowerCase();
+        const scoredSessions: Array<{session: any, score: number, matchType: string}> = [];
+
+        if (exactMatch) {
+          // Exact substring matching (quoted search)
+          console.log('[EventManager] Performing exact substring match search');
+          for (const session of sessions) {
+            let score = 0;
+            let matchType = '';
+
+            // Check title
+            if (session.title.toLowerCase().includes(queryLower)) {
+              score += 10;
+              matchType = 'title';
+            }
+
+            // Check context URLs
+            if (session.contextUrls.some((url: string) => url.toLowerCase().includes(queryLower))) {
+              score += 5;
+              if (!matchType) matchType = 'url';
+            }
+
+            // Check message content
+            const messages = await this.mainWindow.userDataManager.getSessionMessages(currentUser.id, session.id);
+            for (const msg of messages) {
+              const contentStr = typeof msg.content === 'string' 
+                ? msg.content 
+                : JSON.stringify(msg.content);
+              if (contentStr.toLowerCase().includes(queryLower)) {
+                score += 1;
+                if (!matchType) matchType = 'content';
+              }
+            }
+
+            if (score > 0) {
+              scoredSessions.push({ session, score, matchType });
+            }
+          }
+        } else {
+          // Semantic search using vector embeddings
+          console.log('[EventManager] Performing semantic vector search');
+          const vectorStartTime = Date.now();
+          const vectorResults = await this.mainWindow.vectorSearchManager.searchChatHistory(
+            currentUser.id,
+            query,
+            { limit: limit * 2 } // Get more results to combine with text search
+          );
+          console.log(`[EventManager] Vector search returned ${vectorResults.length} results in ${Date.now() - vectorStartTime}ms`);
+
+          // Create a map of sessionId -> vector score
+          const vectorScores = new Map<string, number>();
+          for (const result of vectorResults) {
+            const existing = vectorScores.get(result.sessionId) || 0;
+            vectorScores.set(result.sessionId, Math.max(existing, result.score));
+          }
+
+          // Score each session using both text and vector similarity
+          // Strategy: Prioritize exact text matches over semantic similarity
+          console.log(`[EventManager] Scoring ${sessions.length} sessions for query: "${query}"`);
+          
+          for (const session of sessions) {
+            let score = 0;
+            let matchType = '';
+            let hasExactMatch = false;
+
+            // Text matching for title (highest weight for exact matches)
+            if (session.title.toLowerCase().includes(queryLower)) {
+              score += 15;
+              matchType = 'title';
+              hasExactMatch = true;
+              console.log(`[EventManager] Title match in session ${session.id.substring(0, 20)}`);
+            }
+
+            // Check context URLs
+            if (session.contextUrls.some((url: string) => url.toLowerCase().includes(queryLower))) {
+              score += 8;
+              if (!matchType) matchType = 'url';
+              hasExactMatch = true;
+              console.log(`[EventManager] URL match in session ${session.id.substring(0, 20)}`);
+            }
+
+            // Check date/timestamp in query
+            const sessionDate = new Date(session.lastActiveAt).toISOString();
+            if (sessionDate.includes(queryLower)) {
+              score += 5;
+              if (!matchType) matchType = 'date';
+              hasExactMatch = true;
+            }
+
+            // ALWAYS check message content for exact matches (not conditional)
+            const messages = await this.mainWindow.userDataManager.getSessionMessages(currentUser.id, session.id);
+            for (const msg of messages) {
+              const contentStr = typeof msg.content === 'string' 
+                ? msg.content 
+                : JSON.stringify(msg.content);
+              if (contentStr.toLowerCase().includes(queryLower)) {
+                score += 12; // Higher weight for exact content match
+                if (!matchType) matchType = 'content';
+                hasExactMatch = true;
+                console.log(`[EventManager] Content match in session ${session.id.substring(0, 20)} (role: ${msg.role})`);
+                break; // Only count once per session
+              }
+            }
+
+            // Add vector similarity score (lower weight when exact match exists)
+            const vectorScore = vectorScores.get(session.id) || 0;
+            if (vectorScore > 0) {
+              if (hasExactMatch) {
+                // Semantic similarity as a tie-breaker for exact matches
+                score += vectorScore * 3;
+              } else {
+                // Pure semantic match gets moderate weight
+                score += vectorScore * 8;
+                if (!matchType) matchType = 'semantic';
+              }
+            }
+
+            if (score > 0) {
+              scoredSessions.push({ session, score, matchType });
+            }
+          }
+        }
+
+        // Sort by score (descending) and return top results
+        scoredSessions.sort((a, b) => b.score - a.score);
+        const topResults = scoredSessions.slice(0, limit);
+        
+        const duration = Date.now() - startTime;
+        console.log(`[EventManager] Search completed in ${duration}ms:`, {
+          totalCandidates: scoredSessions.length,
+          returnedResults: topResults.length,
+          topScores: topResults.slice(0, 5).map(s => ({
+            title: s.session.title,
+            score: s.score.toFixed(2),
+            matchType: s.matchType
+          }))
+        });
+        
+        return topResults.map(s => ({
+          ...s.session,
+          _searchScore: s.score,
+          _matchType: s.matchType
+        }));
+
+      } catch (error) {
+        const duration = Date.now() - startTime;
+        console.error(`[EventManager] Search failed after ${duration}ms:`, error);
+        return [];
+      }
+    });
   }
 
   private handlePageContentEvents(): void {

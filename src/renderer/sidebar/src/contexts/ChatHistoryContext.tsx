@@ -17,11 +17,18 @@ interface ChatHistoryContextType {
     sessions: ChatSession[]
     currentSessionId: string | null
     isLoading: boolean
+    isSearching: boolean
     loadSessions: () => Promise<void>
     switchToSession: (sessionId: string) => Promise<void>
     createNewSession: (title?: string) => Promise<string>
     deleteSession: (sessionId: string) => Promise<void>
     clearHistory: () => Promise<void>
+    searchSessions: (query: string, options: {
+        exactMatch: boolean;
+        dateFrom?: string;
+        dateTo?: string;
+    }) => Promise<void>
+    clearSearch: () => Promise<void>
 }
 
 const ChatHistoryContext = createContext<ChatHistoryContextType | null>(null)
@@ -38,6 +45,7 @@ export const ChatHistoryProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const [sessions, setSessions] = useState<ChatSession[]>([])
     const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
     const [isLoading, setIsLoading] = useState(false)
+    const [isSearching, setIsSearching] = useState(false)
 
     const loadSessions = useCallback(async () => {
         setIsLoading(true)
@@ -118,6 +126,58 @@ export const ChatHistoryProvider: React.FC<{ children: React.ReactNode }> = ({ c
         }
     }, [])
 
+    const searchSessions = useCallback(async (query: string, options: {
+        exactMatch: boolean;
+        dateFrom?: string;
+        dateTo?: string;
+    }) => {
+        const startTime = performance.now()
+        console.log('[ChatHistoryContext] Starting search:', {
+            query,
+            options,
+            timestamp: new Date().toISOString()
+        })
+        
+        setIsSearching(true)
+        try {
+            const results = await window.sidebarAPI.searchChatHistory(query, {
+                exactMatch: options.exactMatch,
+                dateFrom: options.dateFrom,
+                dateTo: options.dateTo,
+                limit: 50
+            })
+            
+            const duration = performance.now() - startTime
+            console.log('[ChatHistoryContext] Search completed:', {
+                resultsCount: results.length,
+                durationMs: duration.toFixed(2),
+                results: results.map(r => ({
+                    id: r.id,
+                    title: r.title,
+                    messageCount: r.messageCount,
+                    score: (r as any)._searchScore,
+                    matchType: (r as any)._matchType
+                }))
+            })
+            
+            setSessions(results)
+        } catch (error) {
+            const duration = performance.now() - startTime
+            console.error('[ChatHistoryContext] Search failed:', {
+                error,
+                durationMs: duration.toFixed(2)
+            })
+            setSessions([])
+        } finally {
+            setIsSearching(false)
+        }
+    }, [])
+
+    const clearSearch = useCallback(async () => {
+        console.log('[ChatHistoryContext] Clearing search, reloading all sessions')
+        await loadSessions()
+    }, [loadSessions])
+
     // Load initial data
     useEffect(() => {
         loadSessions()
@@ -127,11 +187,14 @@ export const ChatHistoryProvider: React.FC<{ children: React.ReactNode }> = ({ c
         sessions,
         currentSessionId,
         isLoading,
+        isSearching,
         loadSessions,
         switchToSession,
         createNewSession,
         deleteSession,
-        clearHistory
+        clearHistory,
+        searchSessions,
+        clearSearch
     }
 
     return (

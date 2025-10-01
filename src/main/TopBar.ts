@@ -57,4 +57,8 @@ export class TopBar {
   get view(): WebContentsView {
     return this.webContentsView;
   }
+
+  get webContents() {
+    return this.webContentsView.webContents;
+  }
 }
