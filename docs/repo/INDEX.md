@@ -45,11 +45,40 @@ End-to-end code execution traces for all major features:
 - **User Account Management**: Multi-user isolation, session partitioning, account switching
 - **Browsing History**: Per-user tracking, smart navigation, search and management
 - **Activity Tracking**: Comprehensive behavior monitoring, 13 activity types, buffered collection
+- **Content Analysis**: AI-powered page analysis with intelligent cookie dialog detection
 - **UI Features**: Dark mode synchronization, sidebar toggle, cross-process coordination
 - **Advanced Features**: JavaScript execution, screenshot capture, external link handling
 - **Performance**: Process isolation, memory management, error handling
 
 **Use this** to trace how user interactions flow through the entire codebase from UI to main process and back.
+
+### [CONTENT_ANALYSIS_DESIGN.md](./CONTENT_ANALYSIS_DESIGN.md)
+**Content Analysis System Design**
+
+Detailed technical design for the AI-powered content analysis system:
+
+- **Architecture**: ContentAnalyzer, CategoryManager, AnalysisQueue components
+- **Data Structures**: Analysis results, extracted text, screenshot metadata
+- **Analysis Flow**: Deduplication, queueing, LLM processing, storage
+- **AI Prompt Design**: Structured prompts for page categorization and language detection
+- **Storage Structure**: Per-user analysis data, index-based deduplication, LLM debug logs
+
+**Use this** for understanding the content analysis architecture and implementation details.
+
+### [COOKIE_DIALOG_DETECTION.md](./COOKIE_DIALOG_DETECTION.md)
+**Cookie Consent Dialog Detection System**
+
+Comprehensive guide to the multi-strategy cookie dialog detection:
+
+- **Problem & Solution**: Why cookie dialogs need special handling and how we solve it
+- **Detection Algorithm**: DOM-based scoring system with confidence levels
+- **Multi-Strategy Approach**: Polling, user interaction detection, timeout fallback
+- **Configuration & Tuning**: Adjustable parameters and customization options
+- **Flow Diagram**: Complete visual flow of detection and waiting strategies
+- **Testing & Debugging**: Unit tests, integration tests, troubleshooting guide
+- **Performance Considerations**: Time costs, memory usage, API cost savings
+
+**Use this** for understanding and customizing the cookie dialog detection system.
 
 ---
 

@@ -1,5 +1,6 @@
 import { NativeImage, WebContentsView } from "electron";
 import type { ActivityCollector } from "./ActivityCollector";
+import type { ContentAnalyzer } from "./ContentAnalyzer";
 
 export type HistoryCallback = (entry: {
   url: string;
@@ -17,10 +18,12 @@ export class Tab {
   private _sessionPartition: string;
   private historyCallback?: HistoryCallback;
   private activityCollector?: ActivityCollector;
+  private contentAnalyzer?: ContentAnalyzer;
   private loadStartTime: number = 0;
   private lastFocusTime: number = 0;
   private lastBlurTime: number = 0;
   private scriptInjected: boolean = false;
+  private hasAnalyzedThisPage: boolean = false;
   private pageInteractionData: {
     clickCount: number;
     keyboardEvents: number;
@@ -89,6 +92,7 @@ export class Tab {
     webContents.on("did-navigate", (_, url) => {
       const previousUrl = this._url;
       this._url = url;
+      console.log(`Tab.did-navigate: ${previousUrl} → ${url}, visible=${this._isVisible}`);
       this.recordHistoryEntry();
       
       // Track navigation event
@@ -106,15 +110,23 @@ export class Tab {
       
       // Reset script injection flag for new page
       this.scriptInjected = false;
+      
+      // Reset content analysis flag for new page
+      console.log(`Tab.did-navigate: Resetting hasAnalyzedThisPage flag for ${url}`);
+      this.hasAnalyzedThisPage = false;
     });
 
     webContents.on("did-navigate-in-page", (_, url) => {
       this._url = url;
       this.recordHistoryEntry();
+      
+      // Reset content analysis flag for in-page navigation (e.g., SPAs, hash changes)
+      this.hasAnalyzedThisPage = false;
     });
 
     // Track successful page loads
     webContents.on("did-finish-load", () => {
+      console.log(`Tab.did-finish-load: URL=${this._url}, visible=${this._isVisible}`);
       this.recordHistoryEntry();
       
       // Track page visit
@@ -132,6 +144,14 @@ export class Tab {
       if (!this.scriptInjected) {
         this.injectActivityTrackingScript();
         this.scriptInjected = true;
+      }
+
+      // Trigger content analysis if tab is currently visible
+      console.log(`Tab.did-finish-load: Checking if should trigger analysis, visible=${this._isVisible}`);
+      if (this._isVisible) {
+        this.triggerContentAnalysis();
+      } else {
+        console.log(`Tab.did-finish-load: Skipping analysis - tab not visible`);
       }
     });
 
@@ -224,6 +244,10 @@ export class Tab {
   // Activity tracking methods
   setActivityCollector(collector: ActivityCollector): void {
     this.activityCollector = collector;
+  }
+
+  setContentAnalyzer(analyzer: ContentAnalyzer): void {
+    this.contentAnalyzer = analyzer;
   }
 
   private resetPageInteractionData(): void {
@@ -473,10 +497,374 @@ export class Tab {
   }
 
   // Public methods
-  show(): void {
+  async show(): Promise<void> {
     this._isVisible = true;
     this.webContentsView.setVisible(true);
     this.recordHistoryEntry();
+
+    // Trigger content analysis when tab becomes visible
+    this.triggerContentAnalysis();
+  }
+
+  private triggerContentAnalysis(): void {
+    console.log(`Tab.triggerContentAnalysis: URL=${this._url}, hasAnalyzed=${this.hasAnalyzedThisPage}, visible=${this._isVisible}, hasAnalyzer=${!!this.contentAnalyzer}, hasCollector=${!!this.activityCollector}`);
+    
+    // Trigger content analysis on first activation of this page
+    if (!this.hasAnalyzedThisPage && this.contentAnalyzer && this.activityCollector) {
+      this.hasAnalyzedThisPage = true;
+      
+      // Get current user ID from activity collector
+      const userId = this.activityCollector.getUserId();
+      
+      // Generate activity ID for this page visit
+      const activityId = `activity-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      
+      console.log(`Tab.triggerContentAnalysis: Triggering smart cookie detection and analysis for ${this._url} with activityId ${activityId}`);
+      
+      // Trigger analysis with smart cookie dialog handling (async, non-blocking)
+      this.handleContentAnalysisWithCookieDetection(activityId, userId).catch(error => {
+        console.error('Content analysis with cookie detection failed:', error);
+      });
+    } else {
+      console.log(`Tab.triggerContentAnalysis: Skipping analysis - already analyzed or missing dependencies`);
+    }
+  }
+
+  // ============================================================================
+  // COOKIE CONSENT DIALOG DETECTION & HANDLING
+  // ============================================================================
+
+  /**
+   * Detects cookie consent dialogs using DOM analysis
+   * Returns confidence score (0-1) and whether a dialog is likely present
+   */
+  private async detectCookieConsent(): Promise<{
+    hasDialog: boolean;
+    confidence: number;
+    details?: any;
+  }> {
+    try {
+      const result = await this.runJs(`
+        (function() {
+          const indicators = {
+            // Common cookie consent patterns
+            selectors: [
+              '[id*="cookie" i][id*="banner" i]',
+              '[id*="cookie" i][id*="consent" i]',
+              '[class*="cookie" i][class*="banner" i]',
+              '[class*="cookie" i][class*="consent" i]',
+              '[class*="cookie" i][class*="modal" i]',
+              '[id*="onetrust"]',
+              '[id*="cookiebot"]',
+              '[class*="gdpr"]',
+              '[id*="gdpr"]',
+              '.cmp-banner',
+              '.cookie-notice',
+              '#cookie-law-info-bar',
+              '[role="dialog"][aria-label*="cookie" i]',
+              '[role="dialog"][aria-label*="consent" i]',
+              '[role="dialog"][aria-label*="privacy" i]'
+            ],
+            
+            // Common button text (case insensitive)
+            buttonTexts: [
+              'accept cookies',
+              'accept all cookies',
+              'accept all',
+              'reject cookies',
+              'reject all',
+              'cookie settings',
+              'cookie preferences',
+              'manage cookies',
+              'manage preferences',
+              'i agree',
+              'i accept',
+              'allow all',
+              'only necessary',
+              'only essential',
+              'decline',
+              'customize'
+            ]
+          };
+          
+          let score = 0;
+          let foundElements = [];
+          
+          // Check for dialog selectors
+          for (const selector of indicators.selectors) {
+            try {
+              const elements = document.querySelectorAll(selector);
+              if (elements.length > 0) {
+                for (const el of elements) {
+                  // Check if element is visible and covers significant screen space
+                  const rect = el.getBoundingClientRect();
+                  const isVisible = rect.width > 0 && rect.height > 0;
+                  const style = window.getComputedStyle(el);
+                  const isDisplayed = style.display !== 'none' && 
+                                     style.visibility !== 'hidden' &&
+                                     parseFloat(style.opacity) > 0;
+                  
+                  if (isVisible && isDisplayed) {
+                    score += 30;
+                    
+                    // High z-index indicates overlay
+                    const zIndex = parseInt(style.zIndex) || 0;
+                    if (zIndex > 1000) score += 20;
+                    if (zIndex > 9999) score += 30; // Very high z-index
+                    
+                    // Fixed/absolute positioning
+                    if (style.position === 'fixed') score += 15;
+                    if (style.position === 'absolute') score += 10;
+                    
+                    // Large coverage area
+                    const coverage = (rect.width * rect.height) / 
+                                    (window.innerWidth * window.innerHeight);
+                    if (coverage > 0.2) score += 15;
+                    if (coverage > 0.5) score += 25;
+                    if (coverage > 0.8) score += 35; // Near full screen coverage
+                    
+                    foundElements.push({
+                      selector: selector,
+                      zIndex: zIndex,
+                      coverage: (coverage * 100).toFixed(1) + '%',
+                      position: style.position,
+                      dimensions: {
+                        width: rect.width,
+                        height: rect.height
+                      }
+                    });
+                  }
+                }
+              }
+            } catch (e) {
+              // Ignore selector errors
+            }
+          }
+          
+          // Check for cookie-related buttons
+          let buttonMatches = 0;
+          const allButtons = document.querySelectorAll('button, a[role="button"], [onclick], input[type="button"]');
+          for (const button of allButtons) {
+            const text = (button.textContent || button.value || '').toLowerCase().trim();
+            for (const buttonText of indicators.buttonTexts) {
+              if (text.includes(buttonText)) {
+                buttonMatches++;
+                score += 10;
+                break;
+              }
+            }
+            if (buttonMatches >= 3) break; // Cap button score contribution
+          }
+          
+          // Check for common consent management platform indicators
+          const hasCMP = !!(window.OneTrust || window.Cookiebot || window.CookieConsent || 
+                           window.__tcfapi || window.__cmp || window.Didomi);
+          if (hasCMP) {
+            score += 40;
+          }
+          
+          // Check for backdrop/overlay elements (common in modal dialogs)
+          const backdrops = document.querySelectorAll(
+            '[class*="backdrop"], [class*="overlay"], [class*="mask"], [class*="curtain"]'
+          );
+          for (const backdrop of backdrops) {
+            const style = window.getComputedStyle(backdrop);
+            const rect = backdrop.getBoundingClientRect();
+            if (style.position === 'fixed' && 
+                parseInt(style.zIndex) > 100 &&
+                rect.width > window.innerWidth * 0.8 &&
+                rect.height > window.innerHeight * 0.8) {
+              score += 20;
+            }
+          }
+          
+          return {
+            score: Math.min(score, 100),
+            foundElements: foundElements,
+            hasCMP: hasCMP,
+            buttonMatches: buttonMatches
+          };
+        })()
+      `);
+      
+      const confidence = result.score / 100;
+      return {
+        hasDialog: result.score > 50, // Confidence threshold
+        confidence: confidence,
+        details: result
+      };
+    } catch (error) {
+      console.error('Cookie consent detection failed:', error);
+      return { hasDialog: false, confidence: 0 };
+    }
+  }
+
+  /**
+   * Waits for cookie dialog to be dismissed by polling detection
+   */
+  private async waitForCookieDialogDismissal(maxWaitTime: number = 15000): Promise<boolean> {
+    const startTime = Date.now();
+    const checkInterval = 1000; // Check every second
+    
+    while (Date.now() - startTime < maxWaitTime) {
+      const detection = await this.detectCookieConsent();
+      
+      if (!detection.hasDialog) {
+        console.log('✓ Cookie dialog dismissed or not present');
+        return true;
+      }
+      
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      console.log(`⏳ Cookie dialog still present (confidence: ${(detection.confidence * 100).toFixed(0)}%), waiting... [${elapsed}s/${maxWaitTime/1000}s]`);
+      await new Promise(resolve => setTimeout(resolve, checkInterval));
+    }
+    
+    console.log('⏱️  Timeout waiting for cookie dialog dismissal, proceeding with analysis');
+    return false; // Timeout - proceed anyway
+  }
+
+  /**
+   * Sets up listeners for first user interaction (click, keyboard, scroll)
+   * Returns a promise that resolves when interaction is detected or timeout occurs
+   */
+  private setupFirstInteractionListener(timeoutMs: number = 20000): Promise<boolean> {
+    return new Promise((resolve) => {
+      const webContents = this.webContentsView.webContents;
+      let resolved = false;
+      let timeout: NodeJS.Timeout;
+      
+      const handleInteraction = () => {
+        if (!resolved) {
+          resolved = true;
+          console.log('✓ User interaction detected');
+          clearTimeout(timeout);
+          webContents.removeListener('before-input-event', inputListener);
+          resolve(true);
+        }
+      };
+      
+      // Listen for mouse/keyboard input
+      const inputListener = (_: any, input: any) => {
+        if (input.type === 'mouseDown' || input.type === 'keyDown') {
+          handleInteraction();
+        }
+      };
+      
+      webContents.on('before-input-event', inputListener);
+      
+      // Inject script to detect scroll and send IPC message
+      this.runJs(`
+        (function() {
+          let scrollFired = false;
+          window.addEventListener('scroll', () => {
+            if (!scrollFired) {
+              scrollFired = true;
+              // Scroll detected - this will be detected by the activity script
+            }
+          }, { once: true });
+        })();
+      `).catch(() => {
+        // Ignore errors - scroll detection is optional
+      });
+      
+      // Timeout fallback
+      timeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          console.log('⏱️  User interaction timeout reached, proceeding with analysis');
+          webContents.removeListener('before-input-event', inputListener);
+          resolve(false);
+        }
+      }, timeoutMs);
+    });
+  }
+
+  /**
+   * Handles content analysis with smart cookie dialog detection
+   * Combines multiple strategies:
+   * 1. Initial detection of cookie dialogs
+   * 2. Wait for user dismissal (polling)
+   * 3. Wait for user interaction (click/scroll/keyboard)
+   * 4. Timeout fallback to ensure analysis happens eventually
+   */
+  private async handleContentAnalysisWithCookieDetection(
+    activityId: string, 
+    userId: string
+  ): Promise<void> {
+    try {
+      // Wait a bit for page to settle and dynamic content to load
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Check if page is still loading
+      if (this.webContentsView.webContents.isLoading()) {
+        console.log('⏳ Page still loading, waiting for completion...');
+        await new Promise<void>(resolve => {
+          const loadHandler = () => resolve();
+          this.webContentsView.webContents.once('did-finish-load', loadHandler);
+        });
+        // Give it another moment after load
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      
+      // Detect initial cookie dialog
+      console.log('🔍 Checking for cookie consent dialog...');
+      const initialDetection = await this.detectCookieConsent();
+      
+      if (initialDetection.hasDialog) {
+        console.log(`🍪 Cookie dialog detected with ${(initialDetection.confidence * 100).toFixed(0)}% confidence`);
+        console.log('   Details:', JSON.stringify(initialDetection.details, null, 2));
+        
+        if (initialDetection.confidence > 0.6) {
+          // High confidence - use both strategies in parallel
+          console.log('📋 Strategy: Wait for user dismissal OR interaction (max 15s)');
+          
+          // Race between:
+          // 1. Dialog dismissal (polling every second)
+          // 2. User interaction (event-based)
+          await Promise.race([
+            this.waitForCookieDialogDismissal(15000),
+            this.setupFirstInteractionListener(15000)
+          ]);
+          
+          // Give page a moment to re-render after dialog dismissal
+          await new Promise(resolve => setTimeout(resolve, 1500));
+          
+          // Double-check if dialog is gone
+          const postDismissalCheck = await this.detectCookieConsent();
+          if (postDismissalCheck.hasDialog && postDismissalCheck.confidence > 0.5) {
+            console.log(`⚠️  Cookie dialog still present (${(postDismissalCheck.confidence * 100).toFixed(0)}%), but proceeding with analysis`);
+          } else {
+            console.log('✓ Cookie dialog confirmed dismissed');
+          }
+        } else {
+          // Low-medium confidence - shorter wait, might be false positive
+          console.log('📋 Strategy: Brief wait for potential dialog dismissal (5s)');
+          await Promise.race([
+            this.waitForCookieDialogDismissal(5000),
+            this.setupFirstInteractionListener(5000)
+          ]);
+        }
+      } else {
+        console.log('✓ No cookie dialog detected, proceeding immediately');
+      }
+      
+      // Proceed with content analysis
+      console.log('🚀 Starting content analysis...');
+      await this.contentAnalyzer!.onPageVisit(activityId, this._url, userId, this);
+      console.log('✓ Content analysis completed');
+      
+    } catch (error) {
+      console.error('❌ Content analysis with cookie detection failed:', error);
+      
+      // Fallback: try analysis anyway without cookie handling
+      console.log('🔄 Attempting fallback content analysis...');
+      try {
+        await this.contentAnalyzer!.onPageVisit(activityId, this._url, userId, this);
+        console.log('✓ Fallback content analysis completed');
+      } catch (fallbackError) {
+        console.error('❌ Fallback content analysis also failed:', fallbackError);
+      }
+    }
   }
 
   hide(): void {
@@ -493,16 +881,219 @@ export class Tab {
     return await this.webContentsView.webContents.capturePage();
   }
 
+  async getScreenshotWithMetadata(): Promise<{
+    image: NativeImage;
+    metadata: {
+      viewportWidth: number;
+      viewportHeight: number;
+      documentHeight: number;
+      scrollPosition: { x: number; y: number };
+      zoomFactor: number;
+      capturedAt: Date;
+    };
+  }> {
+    const image = await this.screenshot();
+    
+    try {
+      const metadata = await this.runJs(`
+        (function() {
+          return {
+            viewportWidth: window.innerWidth,
+            viewportHeight: window.innerHeight,
+            documentHeight: document.documentElement.scrollHeight,
+            scrollPosition: {
+              x: window.scrollX,
+              y: window.scrollY
+            },
+            zoomFactor: window.devicePixelRatio
+          };
+        })()
+      `);
+      
+      return {
+        image,
+        metadata: {
+          ...metadata,
+          capturedAt: new Date()
+        }
+      };
+    } catch (error) {
+      console.error('Failed to get screenshot metadata:', error);
+      // Return screenshot with default metadata
+      return {
+        image,
+        metadata: {
+          viewportWidth: -1,
+          viewportHeight: -1,
+          documentHeight: -1,
+          scrollPosition: { x: 0, y: 0 },
+          zoomFactor: 1,
+          capturedAt: new Date()
+        }
+      };
+    }
+  }
+
   async runJs(code: string): Promise<any> {
     return await this.webContentsView.webContents.executeJavaScript(code);
   }
 
   async getTabHtml(): Promise<string> {
-    return await this.runJs("return document.documentElement.outerHTML");
+    try {
+      // Wait for page to be fully loaded
+      if (this.webContentsView.webContents.isLoading()) {
+        await new Promise<void>((resolve) => {
+          this.webContentsView.webContents.once('did-finish-load', () => resolve());
+        });
+      }
+
+      // Execute with timeout
+      const result = await Promise.race([
+        this.runJs("document.documentElement.outerHTML"),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Timeout getting HTML')), 5000)
+        )
+      ]);
+
+      return result as string;
+    } catch (error) {
+      console.error('Failed to get HTML:', error);
+      return '';
+    }
   }
 
   async getTabText(): Promise<string> {
-    return await this.runJs("return document.documentElement.innerText");
+    try {
+      // Wait for page to be fully loaded
+      if (this.webContentsView.webContents.isLoading()) {
+        await new Promise<void>((resolve) => {
+          this.webContentsView.webContents.once('did-finish-load', () => resolve());
+        });
+      }
+
+      // Execute with timeout
+      const result = await Promise.race([
+        this.runJs("document.documentElement.innerText"),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Timeout getting text')), 5000)
+        )
+      ]);
+
+      return result as string;
+    } catch (error) {
+      console.error('Failed to get page text:', error);
+      
+      // Fallback: try to extract text from HTML
+      try {
+        const html = await this.getTabHtml();
+        if (html) {
+          return this.stripHtmlTags(html);
+        }
+      } catch {
+        // Ignore fallback errors
+      }
+      
+      return '';
+    }
+  }
+
+  async extractStructuredText(): Promise<{
+    title: string;
+    metaDescription?: string;
+    headings: Array<{ level: number; text: string }>;
+    paragraphs: string[];
+    links: Array<{ text: string; href: string }>;
+    fullText: string;
+    textLength: number;
+  }> {
+    try {
+      // Wait for page to be fully loaded
+      if (this.webContentsView.webContents.isLoading()) {
+        await new Promise<void>((resolve) => {
+          this.webContentsView.webContents.once('did-finish-load', () => resolve());
+        });
+      }
+
+      const extractionScript = `
+        (function() {
+          try {
+            return {
+              title: document.title || '',
+              metaDescription: document.querySelector('meta[name="description"]')?.content || '',
+              headings: Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, h6'))
+                .map(h => ({
+                  level: parseInt(h.tagName[1]),
+                  text: h.innerText.trim()
+                }))
+                .filter(h => h.text.length > 0),
+              paragraphs: Array.from(document.querySelectorAll('p'))
+                .map(p => p.innerText.trim())
+                .filter(t => t.length > 20),
+              links: Array.from(document.querySelectorAll('a[href]'))
+                .slice(0, 50)
+                .map(a => ({
+                  text: a.innerText.trim(),
+                  href: a.href
+                }))
+                .filter(l => l.text.length > 0),
+              fullText: document.body.innerText || '',
+              textLength: (document.body.innerText || '').length
+            };
+          } catch (e) {
+            return { error: e.message };
+          }
+        })()
+      `;
+
+      const result = await Promise.race([
+        this.runJs(extractionScript),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Timeout extracting text')), 5000)
+        )
+      ]) as any;
+
+      if (result.error) {
+        throw new Error(`Text extraction failed: ${result.error}`);
+      }
+
+      return result;
+    } catch (error) {
+      console.error('Failed to extract structured text:', error);
+      
+      // Return minimal structure with fallback text
+      try {
+        const text = await this.getTabText();
+        return {
+          title: this._title || '',
+          metaDescription: undefined,
+          headings: [],
+          paragraphs: [],
+          links: [],
+          fullText: text,
+          textLength: text.length
+        };
+      } catch {
+        return {
+          title: this._title || '',
+          metaDescription: undefined,
+          headings: [],
+          paragraphs: [],
+          links: [],
+          fullText: '',
+          textLength: 0
+        };
+      }
+    }
+  }
+
+  private stripHtmlTags(html: string): string {
+    // Basic HTML tag removal - not perfect but works for fallback
+    return html
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   loadURL(url: string): Promise<void> {

@@ -5,6 +5,8 @@ import { SideBar } from "./SideBar";
 import { UserAccountManager, type TabSwitchOptions } from "./UserAccountManager";
 import { UserDataManager, type UserTabState } from "./UserDataManager";
 import { ActivityCollector } from "./ActivityCollector";
+import { ContentAnalyzer } from "./ContentAnalyzer";
+import { CategoryManager } from "./CategoryManager";
 
 export class Window {
   private _baseWindow!: BaseWindow;
@@ -17,6 +19,8 @@ export class Window {
   private _userDataManager!: UserDataManager;
   private _userAccountManager!: UserAccountManager;
   private _activityCollector?: ActivityCollector;
+  private _contentAnalyzer!: ContentAnalyzer;
+  private _categoryManager!: CategoryManager;
 
   private constructor() {
     // Private constructor - use Window.create() instead
@@ -48,6 +52,13 @@ export class Window {
     
     // Wait for user accounts to initialize before proceeding
     await this.waitForUserAccountsInitialization();
+
+    // Initialize category manager (global)
+    this._categoryManager = new CategoryManager();
+    await this._categoryManager.load();
+
+    // Initialize content analyzer
+    this._contentAnalyzer = new ContentAnalyzer(this._userDataManager, this._categoryManager);
 
     this._topBar = new TopBar(this._baseWindow);
     this._sideBar = new SideBar(this._baseWindow);
@@ -96,6 +107,17 @@ export class Window {
         this._activityCollector.destroy();
       }
       
+      // Clean up content analyzer
+      // WHY?
+      if (this._contentAnalyzer) {
+        this._contentAnalyzer.destroy();
+      }
+      
+      // Save category manager
+      if (this._categoryManager) {
+        this._categoryManager.save();
+      }
+      
       // Clean up all tabs when window is closed
       this.tabsMap.forEach((tab) => tab.destroy());
       this.tabsMap.clear();
@@ -120,6 +142,11 @@ export class Window {
       // Set collector for all existing tabs
       this.tabsMap.forEach(tab => {
         tab.setActivityCollector(this._activityCollector!);
+      });
+
+      // Content analyzer is always available (works across all users)
+      this.tabsMap.forEach(tab => {
+        tab.setContentAnalyzer(this._contentAnalyzer);
       });
     } else {
       // No activity tracking for guest users
@@ -183,6 +210,11 @@ export class Window {
     // Set activity collector if available
     if (this._activityCollector) {
       tab.setActivityCollector(this._activityCollector);
+    }
+
+    // Set content analyzer
+    if (this._contentAnalyzer) {
+      tab.setContentAnalyzer(this._contentAnalyzer);
     }
 
     // Add the tab's WebContentsView to the window
