@@ -45,6 +45,14 @@ const sidebarAPI = {
     electronAPI.ipcRenderer.removeAllListeners("chat-messages-updated");
   },
 
+  // Chat History functionality
+  getChatHistory: () => electronAPI.ipcRenderer.invoke("get-chat-history"),
+  getChatSessions: () => electronAPI.ipcRenderer.invoke("get-chat-sessions"),
+  getSessionMessages: (sessionId: string) => electronAPI.ipcRenderer.invoke("get-session-messages", sessionId),
+  createChatSession: (contextUrl?: string, title?: string) => electronAPI.ipcRenderer.invoke("create-chat-session", contextUrl, title),
+  switchToSession: (sessionId: string) => electronAPI.ipcRenderer.invoke("switch-to-session", sessionId),
+  clearChatHistory: () => electronAPI.ipcRenderer.invoke("clear-chat-history"),
+
   // Page content access
   getPageContent: () => electronAPI.ipcRenderer.invoke("get-page-content"),
   getPageText: () => electronAPI.ipcRenderer.invoke("get-page-text"),

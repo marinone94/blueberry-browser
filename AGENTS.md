@@ -149,10 +149,13 @@ const api = {
 ### Browser Features
 - Basic tab management and navigation
 - Page content extraction for AI context
-- Chat interface with AI integration
+- Chat interface with AI integration and streaming responses
+- Enhanced session-based chat history with metadata tracking
+- Multi-user account system with complete data isolation
 - Screenshot and JavaScript execution capabilities
 - Per-user browsing history with search and management
 - Smart tab navigation from history entries
+- Comprehensive activity tracking with 13 activity types
 
 ## Implementation Guidelines
 - **Incremental Development**: Build MVPs, iterate based on user behavior

@@ -747,6 +747,564 @@ useEffect(() => {
 
 ---
 
+## Enhanced Chat History System
+
+### Overview
+
+Blueberry Browser implements a sophisticated chat history system that organizes AI conversations into persistent sessions with comprehensive metadata tracking. This enables users to manage multiple conversation threads, track context, and analyze chat performance over time.
+
+### Chat Session Architecture
+
+**Purpose**: Organize conversations into separate sessions with full context preservation and metadata tracking
+
+**Key Features**:
+- **Session-based Organization**: Each conversation is a distinct session with unique ID
+- **Comprehensive Metadata**: Tracks timestamps, URLs, response times, and message counts
+- **User Isolation**: Complete chat history separation between user accounts
+- **Persistent Storage**: All sessions and messages saved to disk automatically
+- **Smart Session Management**: Create, switch, and clear sessions with ease
+
+### Chat History Data Structure
+
+#### ChatSession Interface
+```typescript
+interface ChatSession {
+  id: string;                    // Unique session identifier
+  userId: string;                // User account ownership
+  title: string;                 // Session title (initially session ID)
+  startedAt: Date;              // Session creation timestamp
+  lastMessageAt: Date;          // Last message in this session
+  lastActiveAt: Date;           // Last time session was accessed
+  messageCount: number;         // Total messages in session
+  contextUrls: string[];        // All URLs referenced in session
+  totalResponseTime: number;    // Cumulative AI response time
+  averageResponseTime: number;  // Average AI response time
+}
+```
+
+#### ChatMessage Interface
+```typescript
+interface ChatMessage {
+  id: string;                   // Unique message identifier
+  role: 'user' | 'assistant' | 'system';
+  content: string | ContentPart[];
+  timestamp: Date;              // Individual message timestamp
+  contextUrl?: string;          // URL where message was sent
+  contextTitle?: string;        // Page title at time of message
+  sessionId: string;            // Parent session reference
+  responseTime?: number;        // Time taken for AI response (ms)
+  streamingMetrics?: {          // Streaming performance data
+    tokensPerSecond: number;
+    totalTokens: number;
+    firstTokenDelay: number;
+  };
+  messageIndex: number;         // Order within session
+  source: 'user' | 'assistant' | 'system';
+}
+```
+
+#### ChatHistory Interface
+```typescript
+interface ChatHistory {
+  sessions: ChatSession[];      // All conversation sessions
+  messages: ChatMessage[];      // All messages across sessions
+  currentSessionId: string | null;  // Active session
+  totalConversations: number;   // Lifetime conversation count
+  totalMessages: number;        // Lifetime message count
+  createdAt: Date;             // History file creation
+  updatedAt: Date;             // Last modification
+}
+```
+
+### Complete Flow: Chat History Management
+
+#### Creating a New Session
+
+**User Action**: Click "New Chat" button in chat history view
+
+**Complete Flow**:
+
+1. **UI Trigger** (`ChatHistory.tsx`):
+   ```typescript
+   handleNewChat() → {
+     const sessionId = await createNewSession()
+     await switchToSession(sessionId)
+     onClose()
+   }
+   ```
+
+2. **Context Layer** (`ChatHistoryContext.tsx`):
+   ```typescript
+   createNewSession(title?) → {
+     const currentUrl = await window.sidebarAPI.getCurrentUrl()
+     const sessionId = await window.sidebarAPI.createChatSession(currentUrl, title)
+     await loadSessions()
+     return sessionId
+   }
+   ```
+
+3. **IPC Communication** (`EventManager.ts`):
+   ```typescript
+   ipcMain.handle("create-chat-session", async (_, contextUrl?, title?) → {
+     const currentUser = userAccountManager.getCurrentUser()
+     return await userDataManager.createChatSession(currentUser.id, contextUrl, title)
+   })
+   ```
+
+4. **Session Creation** (`UserDataManager.ts`):
+   ```typescript
+   createChatSession(userId, contextUrl?, title?) → {
+     const history = await loadChatHistory(userId)
+     const sessionId = `session-${Date.now()}-${Math.random().toString(36)}`
+     
+     const newSession = {
+       id: sessionId,
+       userId,
+       title: title || sessionId,
+       startedAt: new Date(),
+       lastMessageAt: new Date(),
+       lastActiveAt: new Date(),
+       messageCount: 0,
+       contextUrls: contextUrl ? [contextUrl] : [],
+       totalResponseTime: 0,
+       averageResponseTime: 0
+     }
+     
+     history.sessions.push(newSession)
+     history.currentSessionId = sessionId
+     history.totalConversations++
+     await saveChatHistory(userId, history)
+     
+     return sessionId
+   }
+   ```
+
+5. **LLMClient Synchronization** (`LLMClient.ts`):
+   ```typescript
+   // Automatically loads new empty session
+   loadCurrentUserMessages() → {
+     this.currentSessionId = await userDataManager.getCurrentSessionId(userId)
+     this.messages = []
+     sendMessagesToRenderer()
+   }
+   ```
+
+#### Sending a Message with History Tracking
+
+**User Action**: Send message in chat interface
+
+**Enhanced Flow with History Tracking**:
+
+1. **Message Composition** (`Chat.tsx`):
+   ```typescript
+   handleSubmit() → {
+     onSend(value.trim())
+     setValue('')
+   }
+   ```
+
+2. **Chat Context Processing** (`ChatContext.tsx`):
+   ```typescript
+   sendMessage(content) → {
+     const messageId = Date.now().toString()
+     window.sidebarAPI.sendChatMessage({
+       message: content,
+       messageId: messageId
+     })
+   }
+   ```
+
+3. **LLMClient Message Processing** (`LLMClient.ts`):
+   ```typescript
+   sendChatMessage(request) → {
+     const startTime = Date.now()
+     
+     // Capture context
+     const screenshot = await activeTab.screenshot()
+     const pageText = await activeTab.getTabText()
+     const contextUrl = activeTab.url
+     const contextTitle = activeTab.title
+     
+     // Build user message with multimodal content
+     const userMessage = {
+       role: "user",
+       content: [
+         { type: "image", image: screenshot },
+         { type: "text", text: request.message }
+       ]
+     }
+     
+     this.messages.push(userMessage)
+     sendMessagesToRenderer()
+     
+     // Save user message to history
+     await userDataManager.addChatMessage(
+       currentUserId,
+       userMessage,
+       currentSessionId,
+       contextUrl,
+       contextTitle
+     )
+     
+     // Stream AI response
+     await streamResponse(contextMessages, messageId)
+     
+     const responseTime = Date.now() - startTime
+     
+     // Save assistant message to history with metrics
+     await userDataManager.addChatMessage(
+       currentUserId,
+       assistantMessage,
+       currentSessionId,
+       contextUrl,
+       contextTitle,
+       responseTime,
+       streamingMetrics
+     )
+   }
+   ```
+
+4. **Message Persistence** (`UserDataManager.ts`):
+   ```typescript
+   addChatMessage(userId, message, sessionId, contextUrl, contextTitle, responseTime) → {
+     const history = await loadChatHistory(userId)
+     
+     const chatMessage = {
+       id: `msg-${Date.now()}-${Math.random().toString(36)}`,
+       role: message.role,
+       content: message.content,
+       timestamp: new Date(),
+       contextUrl,
+       contextTitle,
+       sessionId,
+       responseTime,
+       streamingMetrics,
+       messageIndex: history.messages.filter(m => m.sessionId === sessionId).length,
+       source: message.role
+     }
+     
+     history.messages.push(chatMessage)
+     history.totalMessages++
+     
+     // Update session metadata
+     const session = history.sessions.find(s => s.id === sessionId)
+     session.lastMessageAt = new Date()
+     session.messageCount++
+     
+     // Track context URLs
+     if (contextUrl && !session.contextUrls.includes(contextUrl)) {
+       session.contextUrls.push(contextUrl)
+     }
+     
+     // Update response time metrics
+     if (responseTime && message.role === 'assistant') {
+       session.totalResponseTime += responseTime
+       session.averageResponseTime = session.totalResponseTime / 
+         assistantMessageCount
+     }
+     
+     await saveChatHistory(userId, history)
+   }
+   ```
+
+#### Switching Between Sessions
+
+**User Action**: Click on a session in chat history view
+
+**Complete Flow**:
+
+1. **Session Selection** (`ChatHistory.tsx`):
+   ```typescript
+   handleSelectSession(sessionId) → {
+     await switchToSession(sessionId)
+     onSelectSession(sessionId)
+     onClose()
+   }
+   ```
+
+2. **Context Update** (`ChatHistoryContext.tsx`):
+   ```typescript
+   switchToSession(sessionId) → {
+     await window.sidebarAPI.switchToSession(sessionId)
+     setCurrentSessionId(sessionId)
+     await loadSessions()
+   }
+   ```
+
+3. **IPC Handler** (`EventManager.ts`):
+   ```typescript
+   ipcMain.handle("switch-to-session", async (_, sessionId) → {
+     const currentUser = userAccountManager.getCurrentUser()
+     await userDataManager.setCurrentSessionId(currentUser.id, sessionId)
+     await sidebar.client.loadCurrentUserMessages()
+     return true
+   })
+   ```
+
+4. **Session Activation** (`UserDataManager.ts`):
+   ```typescript
+   setCurrentSessionId(userId, sessionId) → {
+     const history = await loadChatHistory(userId)
+     history.currentSessionId = sessionId
+     history.updatedAt = new Date()
+     
+     // Update lastActiveAt for analytics
+     const session = history.sessions.find(s => s.id === sessionId)
+     if (session) {
+       session.lastActiveAt = new Date()
+     }
+     
+     await saveChatHistory(userId, history)
+   }
+   ```
+
+5. **Message Loading** (`LLMClient.ts`):
+   ```typescript
+   loadCurrentUserMessages() → {
+     this.currentSessionId = await userDataManager.getCurrentSessionId(userId)
+     
+     if (this.currentSessionId) {
+       const sessionMessages = await userDataManager.getSessionMessages(userId, sessionId)
+       this.messages = sessionMessages.map(convertToCoreFormat)
+     } else {
+       this.messages = []
+     }
+     
+     sendMessagesToRenderer()
+   }
+   ```
+
+### Chat History UI Features
+
+#### Chat History View (`ChatHistory.tsx`)
+
+**Purpose**: Comprehensive interface for managing conversation sessions
+
+**UI Components**:
+
+1. **Header Section**:
+   - Back button to return to chat
+   - Session count display
+   - "New Chat" button
+
+2. **Sessions List**:
+   - **Visual Indicators**:
+     - "Current" badge for active session
+     - Border highlight for current session
+     - Hover effects for interactivity
+   
+   - **Session Information**:
+     - Session title (prominent)
+     - Last active timestamp with smart formatting
+     - Message count
+     - Average response time
+     - Context URLs (up to 2 shown, with "+N more")
+   
+   - **Interaction**:
+     - Click to switch to session
+     - Automatic close after selection
+
+3. **Empty State**:
+   - Friendly message for new users
+   - Call-to-action button
+
+4. **Footer Actions**:
+   - "Clear All History" button with confirmation
+
+**Smart Time Formatting**:
+```typescript
+formatDate(date) → {
+  if (invalid) return 'Recently'
+  return dateObj.toLocaleString() // e.g., "9/30/2025, 3:45:12 PM"
+}
+
+formatDuration(ms) → {
+  if (ms < 1000) return `${ms}ms`
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
+  return `${(ms / 60000).toFixed(1)}m`
+}
+```
+
+#### Context Management (`ChatHistoryContext.tsx`)
+
+**Purpose**: React context for chat history state management
+
+**State Management**:
+- `sessions`: Array of all conversation sessions
+- `currentSessionId`: ID of active session
+- `isLoading`: Loading state for operations
+
+**Operations**:
+- `loadSessions()`: Refresh sessions list from storage
+- `switchToSession(sessionId)`: Change active session
+- `createNewSession(title?)`: Create new conversation
+- `clearHistory()`: Delete all sessions with confirmation
+
+**Automatic Data Refresh**:
+```typescript
+useEffect(() => {
+  loadSessions() // Load on mount
+}, [])
+```
+
+### Data Storage & Persistence
+
+#### File Structure
+```
+users/user-data/{userId}/
+└── chat-history.json          # Complete chat history for user
+```
+
+#### Storage Format
+```json
+{
+  "sessions": [
+    {
+      "id": "session-1727725838321-abc123",
+      "userId": "07bb0c68-fc82-45e2-8d7b-8f5df9d31044",
+      "title": "session-1727725838321-abc123",
+      "startedAt": "2025-09-30T10:30:38.321Z",
+      "lastMessageAt": "2025-09-30T10:35:12.456Z",
+      "lastActiveAt": "2025-09-30T15:20:00.000Z",
+      "messageCount": 8,
+      "contextUrls": ["https://example.com", "https://docs.example.com"],
+      "totalResponseTime": 15420,
+      "averageResponseTime": 3855
+    }
+  ],
+  "messages": [
+    {
+      "id": "msg-1727725840123-xyz789",
+      "role": "user",
+      "content": "How does this feature work?",
+      "timestamp": "2025-09-30T10:30:40.123Z",
+      "contextUrl": "https://example.com",
+      "contextTitle": "Example Documentation",
+      "sessionId": "session-1727725838321-abc123",
+      "messageIndex": 0,
+      "source": "user"
+    },
+    {
+      "id": "msg-1727725843456-def456",
+      "role": "assistant",
+      "content": "This feature works by...",
+      "timestamp": "2025-09-30T10:30:43.456Z",
+      "contextUrl": "https://example.com",
+      "contextTitle": "Example Documentation",
+      "sessionId": "session-1727725838321-abc123",
+      "responseTime": 3333,
+      "streamingMetrics": {
+        "tokensPerSecond": 42.5,
+        "totalTokens": 142,
+        "firstTokenDelay": 250
+      },
+      "messageIndex": 1,
+      "source": "assistant"
+    }
+  ],
+  "currentSessionId": "session-1727725838321-abc123",
+  "totalConversations": 15,
+  "totalMessages": 127,
+  "createdAt": "2025-09-15T08:00:00.000Z",
+  "updatedAt": "2025-09-30T15:20:00.000Z"
+}
+```
+
+#### Automatic Persistence
+- **Real-time Saving**: Every message automatically saved to disk
+- **Session Updates**: Metadata updated with each interaction
+- **Date Serialization**: All dates properly serialized/deserialized
+- **Atomic Writes**: File operations are atomic to prevent corruption
+
+### User Account Integration
+
+#### Per-User Chat History
+
+**Complete Isolation**:
+- Each user account has separate chat history file
+- No cross-user data access possible
+- Guest user history cleared on app restart
+
+**Automatic User Switching**:
+```typescript
+// LLMClient.handleUserSwitch()
+handleUserSwitch() → {
+  // Load messages for new user
+  await loadCurrentUserMessages()
+  
+  // Current session ID automatically loaded
+  // Messages restored to chat interface
+  // Previous user's data automatically saved
+}
+```
+
+#### Guest User Behavior
+
+**Ephemeral Chat History**:
+- Guest user can create sessions and send messages
+- All chat history cleared on app restart
+- No persistence between sessions
+- Provides privacy for temporary browsing
+
+### Performance Optimizations
+
+#### Efficient Data Loading
+- **Lazy Loading**: Only load messages for current session
+- **Sorted Sessions**: Sessions pre-sorted by `lastActiveAt`
+- **Filtered Display**: Hide empty sessions (0 messages) from UI
+- **Minimal IPC**: Batch operations to reduce IPC overhead
+
+#### Memory Management
+- **Message Pagination**: Only active session messages in memory
+- **Smart Caching**: Session list cached in context
+- **Incremental Updates**: Only changed data persisted
+- **Date Conversion**: Efficient date object serialization
+
+### Security & Privacy
+
+#### Data Protection
+- **Local Storage Only**: All chat history stored locally
+- **No Cloud Sync**: No external transmission of conversations
+- **User Isolation**: Complete separation between accounts
+- **Session Security**: Session IDs are cryptographically random
+
+#### Deletion & Cleanup
+- **Clear All**: Delete all sessions and messages with confirmation
+- **Per-Session Delete**: (Future feature) Delete individual sessions
+- **Automatic Cleanup**: Old sessions can be archived (future feature)
+- **Guest Clearing**: Automatic cleanup on app restart
+
+### Key Functions Involved
+
+**Session Management**:
+- `UserDataManager.createChatSession()` - Create new session
+- `UserDataManager.setCurrentSessionId()` - Switch sessions
+- `UserDataManager.getChatSessions()` - Retrieve all sessions
+- `UserDataManager.getCurrentSessionId()` - Get active session
+
+**Message Management**:
+- `UserDataManager.addChatMessage()` - Save message with metadata
+- `UserDataManager.getSessionMessages()` - Load session messages
+- `LLMClient.sendChatMessage()` - Send message with history tracking
+- `LLMClient.loadCurrentUserMessages()` - Load messages on session change
+
+**UI Components**:
+- `ChatHistory.tsx` - Chat history interface
+- `ChatHistoryContext.tsx` - State management
+- `Chat.tsx` - Main chat interface with history integration
+
+**IPC Handlers** (`EventManager.ts`):
+- `get-chat-history` - Load complete history
+- `get-chat-sessions` - Load all sessions
+- `get-session-messages` - Load specific session
+- `create-chat-session` - Create new session
+- `switch-to-session` - Change active session
+- `clear-chat-history` - Delete all history
+
+This enhanced chat history system provides a foundation for sophisticated conversation management and enables advanced features like conversation analysis, AI-powered summaries, and proactive assistance based on chat patterns.
+
+---
+
 ## Advanced Browser Features
 
 ### JavaScript Execution in Tabs

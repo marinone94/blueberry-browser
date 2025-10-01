@@ -37,6 +37,55 @@ export interface UserTabState {
   // More tab state to be defined later
 }
 
+// Chat History Types with Metadata
+// Streaming performance metrics
+export interface StreamingMetrics {
+  modelName: string; // Model used for generation
+  timeToFirstToken: number; // Time to first token in ms
+  timeToOtherToken: number[]; // Array of time between each token in ms
+  meanTokenTime: number; // Mean time per token
+  medianTokenTime: number; // Median time per token
+  stdDevTokenTime: number; // Standard deviation of token times
+  totalTokens: number; // Total number of tokens streamed
+}
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string | any[];
+  timestamp: Date;
+  contextUrl?: string;
+  contextTitle?: string;
+  sessionId: string;
+  responseTime?: number; // Total response time for assistant messages
+  streamingMetrics?: StreamingMetrics; // Performance metrics for streamed responses
+  messageIndex: number; // Position in conversation
+  source: 'user' | 'assistant' | 'system'; // Message source identification
+}
+
+export interface ChatSession {
+  id: string;
+  userId: string;
+  title: string; // Title of the chat session (initially session ID, later extracted from content)
+  startedAt: Date;
+  lastMessageAt: Date;
+  lastActiveAt: Date; // Last time the session was accessed or modified
+  messageCount: number;
+  contextUrls: string[]; // All URLs referenced in this session
+  totalResponseTime: number; // Sum of all AI response times
+  averageResponseTime: number;
+}
+
+export interface ChatHistory {
+  sessions: ChatSession[];
+  messages: ChatMessage[];
+  currentSessionId: string | null;
+  totalConversations: number;
+  totalMessages: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 /**
  * Manages user-specific data persistence and file system operations.
  * Each user gets isolated data storage for complete privacy.
@@ -114,18 +163,184 @@ export class UserDataManager {
   }
 
   /**
-   * Chat History Management
+   * Chat History Management (with Metadata)
    */
-  async saveChatHistory(userId: string, messages: CoreMessage[]): Promise<void> {
-    await this.saveUserFile(userId, "chat-history.json", messages);
+  async saveChatHistory(userId: string, history: ChatHistory): Promise<void> {
+    await this.saveUserFile(userId, "chat-history.json", history);
   }
 
-  async loadChatHistory(userId: string): Promise<CoreMessage[]> {
-    return await this.loadUserFile(userId, "chat-history.json", []);
+  async loadChatHistory(userId: string): Promise<ChatHistory> {
+    const defaultHistory: ChatHistory = {
+      sessions: [],
+      messages: [],
+      currentSessionId: null,
+      totalConversations: 0,
+      totalMessages: 0,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    const rawHistory = await this.loadUserFile(userId, "chat-history.json", defaultHistory);
+    
+    // Convert date strings back to Date objects
+    return {
+      ...rawHistory,
+      sessions: rawHistory.sessions?.map(session => ({
+        ...session,
+        title: session.title,
+        startedAt: new Date(session.startedAt),
+        lastMessageAt: new Date(session.lastMessageAt),
+        lastActiveAt: new Date(session.lastActiveAt)
+      })) || [],
+      messages: rawHistory.messages?.map(message => ({
+        ...message,
+        timestamp: new Date(message.timestamp)
+      })) || [],
+      createdAt: new Date(rawHistory.createdAt),
+      updatedAt: new Date(rawHistory.updatedAt)
+    };
   }
 
   async clearChatHistory(userId: string): Promise<void> {
-    await this.saveChatHistory(userId, []);
+    const emptyHistory: ChatHistory = {
+      sessions: [],
+      messages: [],
+      currentSessionId: null,
+      totalConversations: 0,
+      totalMessages: 0,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    await this.saveChatHistory(userId, emptyHistory);
+  }
+
+  /**
+   * Create a new chat session
+   */
+  async createChatSession(userId: string, contextUrl?: string, title?: string): Promise<string> {
+    const history = await this.loadChatHistory(userId);
+    const sessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    const newSession: ChatSession = {
+      id: sessionId,
+      userId,
+      title: title || sessionId, // Use provided title or default to session ID
+      startedAt: new Date(),
+      lastMessageAt: new Date(),
+      lastActiveAt: new Date(),
+      messageCount: 0,
+      contextUrls: contextUrl ? [contextUrl] : [],
+      totalResponseTime: 0,
+      averageResponseTime: 0
+    };
+
+    history.sessions.push(newSession);
+    history.currentSessionId = sessionId;
+    history.totalConversations++;
+    history.updatedAt = new Date();
+
+    await this.saveChatHistory(userId, history);
+    return sessionId;
+  }
+
+  /**
+   * Add a message to the chat history
+   */
+  async addChatMessage(
+    userId: string,
+    message: CoreMessage,
+    sessionId: string,
+    contextUrl?: string,
+    contextTitle?: string,
+    responseTime?: number,
+    streamingMetrics?: StreamingMetrics
+  ): Promise<void> {
+    const history = await this.loadChatHistory(userId);
+    
+    // Determine message source based on role
+    const source: 'user' | 'assistant' | 'system' = message.role as 'user' | 'assistant' | 'system';
+    
+    const chatMessage: ChatMessage = {
+      id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      role: message.role as 'user' | 'assistant' | 'system',
+      content: message.content,
+      timestamp: new Date(),
+      contextUrl,
+      contextTitle,
+      sessionId,
+      responseTime,
+      streamingMetrics,
+      messageIndex: history.messages.filter(m => m.sessionId === sessionId).length,
+      source
+    };
+
+    history.messages.push(chatMessage);
+    history.totalMessages++;
+    history.updatedAt = new Date();
+
+    // Update session metadata
+    const session = history.sessions.find(s => s.id === sessionId);
+    if (session) {
+      session.lastMessageAt = new Date();
+      session.lastActiveAt = new Date();
+      session.messageCount++;
+      
+      if (contextUrl && !session.contextUrls.includes(contextUrl)) {
+        session.contextUrls.push(contextUrl);
+      }
+      
+      if (responseTime && message.role === 'assistant') {
+        session.totalResponseTime += responseTime;
+        session.averageResponseTime = session.totalResponseTime / 
+          history.messages.filter(m => m.sessionId === sessionId && m.role === 'assistant').length;
+      }
+    }
+
+    await this.saveChatHistory(userId, history);
+  }
+
+  /**
+   * Get messages for a specific session
+   */
+  async getSessionMessages(userId: string, sessionId: string): Promise<ChatMessage[]> {
+    const history = await this.loadChatHistory(userId);
+    return history.messages
+      .filter(m => m.sessionId === sessionId)
+      .sort((a, b) => a.messageIndex - b.messageIndex);
+  }
+
+  /**
+   * Get all chat sessions for a user (sorted by lastActiveAt)
+   */
+  async getChatSessions(userId: string): Promise<ChatSession[]> {
+    const history = await this.loadChatHistory(userId);
+    return history.sessions.sort((a, b) => b.lastActiveAt.getTime() - a.lastActiveAt.getTime());
+  }
+
+  /**
+   * Get current session ID
+   */
+  async getCurrentSessionId(userId: string): Promise<string | null> {
+    const history = await this.loadChatHistory(userId);
+    return history.currentSessionId;
+  }
+
+  /**
+   * Set current session ID and update lastActiveAt
+   */
+  async setCurrentSessionId(userId: string, sessionId: string | null): Promise<void> {
+    const history = await this.loadChatHistory(userId);
+    history.currentSessionId = sessionId;
+    history.updatedAt = new Date();
+    
+    // Update lastActiveAt for the session being switched to
+    if (sessionId) {
+      const session = history.sessions.find(s => s.id === sessionId);
+      if (session) {
+        session.lastActiveAt = new Date();
+      }
+    }
+    
+    await this.saveChatHistory(userId, history);
   }
 
   /**
