@@ -107,6 +107,41 @@ export class AppMenu {
           },
         ],
       },
+      {
+        label: "Developer",
+        submenu: [
+          {
+            label: "Re-index Chat History",
+            click: async () => {
+              console.log('Menu: Re-indexing chat history...');
+              await this.mainWindow.vectorSearchManager.reindexAllChatSessions(
+                this.mainWindow.userAccountManager.getCurrentUser()?.id || '',
+                this.mainWindow.userDataManager
+              );
+              console.log('Menu: Chat history re-index complete');
+            },
+          },
+          {
+            label: "Re-index Browsing History",
+            click: async () => {
+              console.log('Menu: Re-indexing browsing history...');
+              const result = await this.mainWindow.vectorSearchManager.reindexAllBrowsingHistory(
+                this.mainWindow.userAccountManager.getCurrentUser()?.id || '',
+                this.mainWindow.userDataManager
+              );
+              console.log('Menu: Browsing history re-index complete:', result);
+            },
+          },
+          { type: "separator" },
+          {
+            label: "Open User Data Folder",
+            click: () => {
+              const { shell } = require('electron');
+              shell.openPath(app.getPath('userData'));
+            },
+          },
+        ],
+      },
     ];
 
     const menu = Menu.buildFromTemplate(template);

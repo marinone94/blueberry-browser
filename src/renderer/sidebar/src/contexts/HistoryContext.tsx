@@ -68,10 +68,16 @@ export const HistoryProvider: React.FC<HistoryProviderProps> = ({ children }) =>
   const searchHistory = useCallback(async (query: string) => {
     setIsLoading(true)
     try {
-      console.log('HistoryContext: Searching history with query:', query)
+      console.log('[HistoryContext] Searching history with query:', query)
       if (query.trim()) {
-        const results = await window.sidebarAPI.searchBrowsingHistory(query, 100)
-        console.log('HistoryContext: Search results:', results)
+        // Smart search: basic string search first, semantic fallback if no results
+        // Quotes trigger exact match only (no semantic fallback)
+        const results = await window.sidebarAPI.searchBrowsingHistory(query, { limit: 100 })
+        console.log('[HistoryContext] Search results:', {
+          count: results.length,
+          mode: (results[0] as any)?._searchMode || 'unknown'
+        })
+        
         const processedResults = results.map(entry => ({
           ...entry,
           visitedAt: new Date(entry.visitedAt)
@@ -79,11 +85,11 @@ export const HistoryProvider: React.FC<HistoryProviderProps> = ({ children }) =>
         
         setHistory(processedResults)
       } else {
-        console.log('HistoryContext: Empty query, loading full history')
+        console.log('[HistoryContext] Empty query, loading full history')
         await refreshHistory()
       }
     } catch (error) {
-      console.error('Failed to search history:', error)
+      console.error('[HistoryContext] Failed to search history:', error)
     } finally {
       setIsLoading(false)
     }

@@ -83,13 +83,14 @@ const sidebarAPI = {
   
   // History functionality
   getBrowsingHistory: () => electronAPI.ipcRenderer.invoke("get-browsing-history"),
-  searchBrowsingHistory: (query: string, limit?: number) => 
-    electronAPI.ipcRenderer.invoke("search-browsing-history", query, limit),
+  searchBrowsingHistory: (query: string, options?: { limit?: number; exactMatch?: boolean }) => 
+    electronAPI.ipcRenderer.invoke("search-browsing-history", query, options),
   clearBrowsingHistory: () => electronAPI.ipcRenderer.invoke("clear-browsing-history"),
   removeHistoryEntry: (entryId: string) => 
     electronAPI.ipcRenderer.invoke("remove-history-entry", entryId),
   navigateFromHistory: (url: string) => 
     electronAPI.ipcRenderer.invoke("navigate-from-history", url),
+  reindexBrowsingHistory: () => electronAPI.ipcRenderer.invoke("reindex-browsing-history"),
 
   // Activity data functionality (for future use)
   getActivityData: (userId: string, date?: string) =>

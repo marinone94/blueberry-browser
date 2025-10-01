@@ -125,10 +125,11 @@ interface SidebarAPI {
   
   // History functionality
   getBrowsingHistory: () => Promise<BrowsingHistoryEntry[]>;
-  searchBrowsingHistory: (query: string, limit?: number) => Promise<BrowsingHistoryEntry[]>;
+  searchBrowsingHistory: (query: string, options?: {limit?: number, exactMatch?: boolean}) => Promise<BrowsingHistoryEntry[]>;
   clearBrowsingHistory: () => Promise<{success: boolean, error?: string}>;
   removeHistoryEntry: (entryId: string) => Promise<{success: boolean, error?: string}>;
   navigateFromHistory: (url: string) => Promise<{id: string, title: string, url: string, wasExisting: boolean}>;
+  reindexBrowsingHistory: () => Promise<{success: boolean, indexed: number, skipped: number, alreadyIndexed: number, errors: number, error?: string}>;
 
   // Activity data functionality (for future use)
   getActivityData: (userId: string, date?: string) => Promise<any[]>;

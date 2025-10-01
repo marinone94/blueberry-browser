@@ -850,6 +850,161 @@ export class VectorSearchManager {
   }
 
   /**
+   * Get all indexed analysisIds from the content table
+   */
+  private async getIndexedAnalysisIds(userId: string): Promise<Set<string>> {
+    await this.ensureInitialized(userId);
+
+    const indexedIds = new Set<string>();
+
+    if (!this.contentTable) {
+      console.log('VectorSearchManager: No content table exists, no indexed documents');
+      return indexedIds;
+    }
+
+    try {
+      // Scan all documents and extract unique analysisIds
+      const totalRows = await this.contentTable.countRows();
+      console.log(`VectorSearchManager: Scanning ${totalRows} indexed documents...`);
+
+      if (totalRows === 0) {
+        return indexedIds;
+      }
+
+      // Scan in batches
+      const batchSize = 1000;
+      let offset = 0;
+
+      while (offset < totalRows) {
+        const batch = await this.contentTable
+          .search(Array(384).fill(0))  // Dummy vector for scanning
+          .limit(batchSize)
+          .execute();
+
+        if (!batch || batch.length === 0) break;
+
+        for (const doc of batch) {
+          if (doc.analysisId && typeof doc.analysisId === 'string') {
+            indexedIds.add(doc.analysisId);
+          }
+        }
+
+        offset += batch.length;
+        if (batch.length < batchSize) break;
+      }
+
+      console.log(`VectorSearchManager: Found ${indexedIds.size} unique analysisIds in index`);
+      return indexedIds;
+    } catch (error) {
+      console.error('VectorSearchManager: Failed to get indexed analysis IDs:', error);
+      return indexedIds;
+    }
+  }
+
+  /**
+   * Re-index browsing history entries that are missing from the vector database
+   * Only indexes entries that have content analysis but are not yet indexed
+   * Useful after corruption, database reset, or initial setup
+   */
+  async reindexAllBrowsingHistory(
+    userId: string,
+    userDataManager: any
+  ): Promise<{
+    success: boolean;
+    indexed: number;
+    skipped: number;
+    alreadyIndexed: number;
+    errors: number;
+  }> {
+    console.log(`VectorSearchManager: Starting re-index of missing browsing history entries for user ${userId}`);
+    await this.ensureInitialized(userId);
+
+    let indexed = 0;
+    let skipped = 0;
+    let alreadyIndexed = 0;
+    let errors = 0;
+
+    try {
+      // Get all browsing history entries
+      const historyEntries = await userDataManager.loadBrowsingHistory(userId);
+      console.log(`VectorSearchManager: Found ${historyEntries.length} history entries`);
+
+      // Get all already indexed analysisIds
+      const indexedIds = await this.getIndexedAnalysisIds(userId);
+      console.log(`VectorSearchManager: ${indexedIds.size} entries already indexed`);
+
+      for (const entry of historyEntries) {
+        try {
+          // Check if already indexed
+          if (indexedIds.has(entry.id)) {
+            alreadyIndexed++;
+            if (alreadyIndexed % 50 === 0) {
+              console.log(`VectorSearchManager: Skipped ${alreadyIndexed} already indexed entries...`);
+            }
+            continue;
+          }
+
+          // Try to load existing content analysis for this entry (entry.id is the analysisId)
+          const analysisData = await userDataManager.getContentAnalysis(userId, entry.id);
+          
+          if (!analysisData) {
+            skipped++;
+            continue;
+          }
+
+          // Index the missing entry
+          await this.indexContentAnalysis(
+            entry.id,
+            userId,
+            entry.url,
+            entry.visitedAt,
+            {
+              pageDescription: analysisData.pageDescription || '',
+              title: analysisData.title || entry.title,
+              metaDescription: analysisData.metaDescription,
+              screenshotDescription: analysisData.screenshotDescription || ''
+            }
+          );
+
+          indexed++;
+          
+          if (indexed % 10 === 0) {
+            console.log(`VectorSearchManager: Indexed ${indexed} missing entries...`);
+          }
+        } catch (error) {
+          console.error(`VectorSearchManager: Failed to index entry ${entry.id}:`, error);
+          errors++;
+        }
+      }
+
+      console.log(`VectorSearchManager: Completed re-indexing browsing history:`, {
+        total: historyEntries.length,
+        indexed,
+        alreadyIndexed,
+        skipped,
+        errors
+      });
+
+      return {
+        success: true,
+        indexed,
+        skipped,
+        alreadyIndexed,
+        errors
+      };
+    } catch (error) {
+      console.error('VectorSearchManager: Browsing history re-index failed:', error);
+      return {
+        success: false,
+        indexed,
+        skipped,
+        alreadyIndexed,
+        errors: errors + 1
+      };
+    }
+  }
+
+  /**
    * Cleanup resources
    */
   async destroy(): Promise<void> {
