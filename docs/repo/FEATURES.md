@@ -1684,6 +1684,40 @@ This comprehensive activity tracking system provides the foundation for building
 
 The Content Analysis System performs intelligent, AI-powered analysis of visited web pages to extract structured information including text content, visual descriptions, language detection, and hierarchical categorization. The system operates asynchronously to avoid blocking the browser, with smart deduplication to prevent redundant analysis of unchanged content.
 
+**Key Innovation**: The system includes **intelligent cookie consent dialog detection** that waits for users to dismiss cookie banners before capturing page content, ensuring accurate analysis of the actual page content rather than overlay dialogs.
+
+### Cookie Dialog Detection
+
+Before performing content analysis, the system intelligently detects and handles cookie consent dialogs using a multi-strategy approach:
+
+**Detection Strategy**:
+- **DOM Analysis**: Scans for common cookie dialog patterns (OneTrust, Cookiebot, GDPR banners)
+- **Confidence Scoring**: Assigns 0-100 score based on selectors, z-index, coverage, and button text
+- **Smart Waiting**: High confidence (>60%) waits up to 15s, low confidence (50-60%) waits 5s
+- **User Interaction**: Detects clicks, keyboard input, or scrolling (indicates dialog dismissal)
+- **Polling**: Continuously checks if dialog has disappeared
+- **Timeout Fallback**: Proceeds with analysis after timeout to prevent indefinite waiting
+
+**Benefits**:
+- ✅ Avoids analyzing cookie overlay instead of actual content
+- ✅ No false positives on legitimate "cookie" content (recipes, privacy pages)
+- ✅ Natural user workflow - waits for interaction
+- ✅ Never blocks indefinitely - smart timeouts
+- ✅ Detailed logging for debugging
+
+**Example Detection Output**:
+```
+🔍 Checking for cookie consent dialog...
+🍪 Cookie dialog detected with 85% confidence
+📋 Strategy: Wait for user dismissal OR interaction (max 15s)
+⏳ Cookie dialog still present (confidence: 85%), waiting... [2s/15s]
+✓ User interaction detected
+✓ Cookie dialog confirmed dismissed
+🚀 Starting content analysis...
+```
+
+See [Cookie Dialog Detection Documentation](./COOKIE_DIALOG_DETECTION.md) for complete details.
+
 ### Page Visit Analysis Flow
 
 **User Action**: User switches to a tab (tab activation)
@@ -1700,8 +1734,14 @@ The Content Analysis System performs intelligent, AI-powered analysis of visited
        activityId = generateActivityId()
        userId = activityCollector.getUserId()
        
-       // Trigger async analysis (non-blocking)
-       contentAnalyzer.onPageVisit(activityId, url, userId, this)
+       // Trigger async analysis with cookie detection (non-blocking)
+       handleContentAnalysisWithCookieDetection(activityId, userId) → {
+         // Wait for page to settle (2s)
+         // Detect cookie consent dialog with confidence scoring
+         // If detected: wait for dismissal OR user interaction (5-15s)
+         // Proceed to content extraction
+         contentAnalyzer.onPageVisit(activityId, url, userId, this)
+       }
      }
    }
    ```

@@ -519,14 +519,351 @@ export class Tab {
       // Generate activity ID for this page visit
       const activityId = `activity-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       
-      console.log(`Tab.triggerContentAnalysis: Triggering analysis for ${this._url} with activityId ${activityId}`);
+      console.log(`Tab.triggerContentAnalysis: Triggering smart cookie detection and analysis for ${this._url} with activityId ${activityId}`);
       
-      // Trigger analysis asynchronously (don't await - let it run in background)
-      this.contentAnalyzer.onPageVisit(activityId, this._url, userId, this).catch(error => {
-        console.error('Content analysis failed:', error);
+      // Trigger analysis with smart cookie dialog handling (async, non-blocking)
+      this.handleContentAnalysisWithCookieDetection(activityId, userId).catch(error => {
+        console.error('Content analysis with cookie detection failed:', error);
       });
     } else {
       console.log(`Tab.triggerContentAnalysis: Skipping analysis - already analyzed or missing dependencies`);
+    }
+  }
+
+  // ============================================================================
+  // COOKIE CONSENT DIALOG DETECTION & HANDLING
+  // ============================================================================
+
+  /**
+   * Detects cookie consent dialogs using DOM analysis
+   * Returns confidence score (0-1) and whether a dialog is likely present
+   */
+  private async detectCookieConsent(): Promise<{
+    hasDialog: boolean;
+    confidence: number;
+    details?: any;
+  }> {
+    try {
+      const result = await this.runJs(`
+        (function() {
+          const indicators = {
+            // Common cookie consent patterns
+            selectors: [
+              '[id*="cookie" i][id*="banner" i]',
+              '[id*="cookie" i][id*="consent" i]',
+              '[class*="cookie" i][class*="banner" i]',
+              '[class*="cookie" i][class*="consent" i]',
+              '[class*="cookie" i][class*="modal" i]',
+              '[id*="onetrust"]',
+              '[id*="cookiebot"]',
+              '[class*="gdpr"]',
+              '[id*="gdpr"]',
+              '.cmp-banner',
+              '.cookie-notice',
+              '#cookie-law-info-bar',
+              '[role="dialog"][aria-label*="cookie" i]',
+              '[role="dialog"][aria-label*="consent" i]',
+              '[role="dialog"][aria-label*="privacy" i]'
+            ],
+            
+            // Common button text (case insensitive)
+            buttonTexts: [
+              'accept cookies',
+              'accept all cookies',
+              'accept all',
+              'reject cookies',
+              'reject all',
+              'cookie settings',
+              'cookie preferences',
+              'manage cookies',
+              'manage preferences',
+              'i agree',
+              'i accept',
+              'allow all',
+              'only necessary',
+              'only essential',
+              'decline',
+              'customize'
+            ]
+          };
+          
+          let score = 0;
+          let foundElements = [];
+          
+          // Check for dialog selectors
+          for (const selector of indicators.selectors) {
+            try {
+              const elements = document.querySelectorAll(selector);
+              if (elements.length > 0) {
+                for (const el of elements) {
+                  // Check if element is visible and covers significant screen space
+                  const rect = el.getBoundingClientRect();
+                  const isVisible = rect.width > 0 && rect.height > 0;
+                  const style = window.getComputedStyle(el);
+                  const isDisplayed = style.display !== 'none' && 
+                                     style.visibility !== 'hidden' &&
+                                     parseFloat(style.opacity) > 0;
+                  
+                  if (isVisible && isDisplayed) {
+                    score += 30;
+                    
+                    // High z-index indicates overlay
+                    const zIndex = parseInt(style.zIndex) || 0;
+                    if (zIndex > 1000) score += 20;
+                    if (zIndex > 9999) score += 30; // Very high z-index
+                    
+                    // Fixed/absolute positioning
+                    if (style.position === 'fixed') score += 15;
+                    if (style.position === 'absolute') score += 10;
+                    
+                    // Large coverage area
+                    const coverage = (rect.width * rect.height) / 
+                                    (window.innerWidth * window.innerHeight);
+                    if (coverage > 0.2) score += 15;
+                    if (coverage > 0.5) score += 25;
+                    if (coverage > 0.8) score += 35; // Near full screen coverage
+                    
+                    foundElements.push({
+                      selector: selector,
+                      zIndex: zIndex,
+                      coverage: (coverage * 100).toFixed(1) + '%',
+                      position: style.position,
+                      dimensions: {
+                        width: rect.width,
+                        height: rect.height
+                      }
+                    });
+                  }
+                }
+              }
+            } catch (e) {
+              // Ignore selector errors
+            }
+          }
+          
+          // Check for cookie-related buttons
+          let buttonMatches = 0;
+          const allButtons = document.querySelectorAll('button, a[role="button"], [onclick], input[type="button"]');
+          for (const button of allButtons) {
+            const text = (button.textContent || button.value || '').toLowerCase().trim();
+            for (const buttonText of indicators.buttonTexts) {
+              if (text.includes(buttonText)) {
+                buttonMatches++;
+                score += 10;
+                break;
+              }
+            }
+            if (buttonMatches >= 3) break; // Cap button score contribution
+          }
+          
+          // Check for common consent management platform indicators
+          const hasCMP = !!(window.OneTrust || window.Cookiebot || window.CookieConsent || 
+                           window.__tcfapi || window.__cmp || window.Didomi);
+          if (hasCMP) {
+            score += 40;
+          }
+          
+          // Check for backdrop/overlay elements (common in modal dialogs)
+          const backdrops = document.querySelectorAll(
+            '[class*="backdrop"], [class*="overlay"], [class*="mask"], [class*="curtain"]'
+          );
+          for (const backdrop of backdrops) {
+            const style = window.getComputedStyle(backdrop);
+            const rect = backdrop.getBoundingClientRect();
+            if (style.position === 'fixed' && 
+                parseInt(style.zIndex) > 100 &&
+                rect.width > window.innerWidth * 0.8 &&
+                rect.height > window.innerHeight * 0.8) {
+              score += 20;
+            }
+          }
+          
+          return {
+            score: Math.min(score, 100),
+            foundElements: foundElements,
+            hasCMP: hasCMP,
+            buttonMatches: buttonMatches
+          };
+        })()
+      `);
+      
+      const confidence = result.score / 100;
+      return {
+        hasDialog: result.score > 50, // Confidence threshold
+        confidence: confidence,
+        details: result
+      };
+    } catch (error) {
+      console.error('Cookie consent detection failed:', error);
+      return { hasDialog: false, confidence: 0 };
+    }
+  }
+
+  /**
+   * Waits for cookie dialog to be dismissed by polling detection
+   */
+  private async waitForCookieDialogDismissal(maxWaitTime: number = 15000): Promise<boolean> {
+    const startTime = Date.now();
+    const checkInterval = 1000; // Check every second
+    
+    while (Date.now() - startTime < maxWaitTime) {
+      const detection = await this.detectCookieConsent();
+      
+      if (!detection.hasDialog) {
+        console.log('✓ Cookie dialog dismissed or not present');
+        return true;
+      }
+      
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      console.log(`⏳ Cookie dialog still present (confidence: ${(detection.confidence * 100).toFixed(0)}%), waiting... [${elapsed}s/${maxWaitTime/1000}s]`);
+      await new Promise(resolve => setTimeout(resolve, checkInterval));
+    }
+    
+    console.log('⏱️  Timeout waiting for cookie dialog dismissal, proceeding with analysis');
+    return false; // Timeout - proceed anyway
+  }
+
+  /**
+   * Sets up listeners for first user interaction (click, keyboard, scroll)
+   * Returns a promise that resolves when interaction is detected or timeout occurs
+   */
+  private setupFirstInteractionListener(timeoutMs: number = 20000): Promise<boolean> {
+    return new Promise((resolve) => {
+      const webContents = this.webContentsView.webContents;
+      let resolved = false;
+      let timeout: NodeJS.Timeout;
+      
+      const handleInteraction = () => {
+        if (!resolved) {
+          resolved = true;
+          console.log('✓ User interaction detected');
+          clearTimeout(timeout);
+          webContents.removeListener('before-input-event', inputListener);
+          resolve(true);
+        }
+      };
+      
+      // Listen for mouse/keyboard input
+      const inputListener = (_: any, input: any) => {
+        if (input.type === 'mouseDown' || input.type === 'keyDown') {
+          handleInteraction();
+        }
+      };
+      
+      webContents.on('before-input-event', inputListener);
+      
+      // Inject script to detect scroll and send IPC message
+      this.runJs(`
+        (function() {
+          let scrollFired = false;
+          window.addEventListener('scroll', () => {
+            if (!scrollFired) {
+              scrollFired = true;
+              // Scroll detected - this will be detected by the activity script
+            }
+          }, { once: true });
+        })();
+      `).catch(() => {
+        // Ignore errors - scroll detection is optional
+      });
+      
+      // Timeout fallback
+      timeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          console.log('⏱️  User interaction timeout reached, proceeding with analysis');
+          webContents.removeListener('before-input-event', inputListener);
+          resolve(false);
+        }
+      }, timeoutMs);
+    });
+  }
+
+  /**
+   * Handles content analysis with smart cookie dialog detection
+   * Combines multiple strategies:
+   * 1. Initial detection of cookie dialogs
+   * 2. Wait for user dismissal (polling)
+   * 3. Wait for user interaction (click/scroll/keyboard)
+   * 4. Timeout fallback to ensure analysis happens eventually
+   */
+  private async handleContentAnalysisWithCookieDetection(
+    activityId: string, 
+    userId: string
+  ): Promise<void> {
+    try {
+      // Wait a bit for page to settle and dynamic content to load
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Check if page is still loading
+      if (this.webContentsView.webContents.isLoading()) {
+        console.log('⏳ Page still loading, waiting for completion...');
+        await new Promise<void>(resolve => {
+          const loadHandler = () => resolve();
+          this.webContentsView.webContents.once('did-finish-load', loadHandler);
+        });
+        // Give it another moment after load
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      
+      // Detect initial cookie dialog
+      console.log('🔍 Checking for cookie consent dialog...');
+      const initialDetection = await this.detectCookieConsent();
+      
+      if (initialDetection.hasDialog) {
+        console.log(`🍪 Cookie dialog detected with ${(initialDetection.confidence * 100).toFixed(0)}% confidence`);
+        console.log('   Details:', JSON.stringify(initialDetection.details, null, 2));
+        
+        if (initialDetection.confidence > 0.6) {
+          // High confidence - use both strategies in parallel
+          console.log('📋 Strategy: Wait for user dismissal OR interaction (max 15s)');
+          
+          // Race between:
+          // 1. Dialog dismissal (polling every second)
+          // 2. User interaction (event-based)
+          await Promise.race([
+            this.waitForCookieDialogDismissal(15000),
+            this.setupFirstInteractionListener(15000)
+          ]);
+          
+          // Give page a moment to re-render after dialog dismissal
+          await new Promise(resolve => setTimeout(resolve, 1500));
+          
+          // Double-check if dialog is gone
+          const postDismissalCheck = await this.detectCookieConsent();
+          if (postDismissalCheck.hasDialog && postDismissalCheck.confidence > 0.5) {
+            console.log(`⚠️  Cookie dialog still present (${(postDismissalCheck.confidence * 100).toFixed(0)}%), but proceeding with analysis`);
+          } else {
+            console.log('✓ Cookie dialog confirmed dismissed');
+          }
+        } else {
+          // Low-medium confidence - shorter wait, might be false positive
+          console.log('📋 Strategy: Brief wait for potential dialog dismissal (5s)');
+          await Promise.race([
+            this.waitForCookieDialogDismissal(5000),
+            this.setupFirstInteractionListener(5000)
+          ]);
+        }
+      } else {
+        console.log('✓ No cookie dialog detected, proceeding immediately');
+      }
+      
+      // Proceed with content analysis
+      console.log('🚀 Starting content analysis...');
+      await this.contentAnalyzer!.onPageVisit(activityId, this._url, userId, this);
+      console.log('✓ Content analysis completed');
+      
+    } catch (error) {
+      console.error('❌ Content analysis with cookie detection failed:', error);
+      
+      // Fallback: try analysis anyway without cookie handling
+      console.log('🔄 Attempting fallback content analysis...');
+      try {
+        await this.contentAnalyzer!.onPageVisit(activityId, this._url, userId, this);
+        console.log('✓ Fallback content analysis completed');
+      } catch (fallbackError) {
+        console.error('❌ Fallback content analysis also failed:', fallbackError);
+      }
     }
   }
 
