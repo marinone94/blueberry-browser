@@ -112,7 +112,7 @@ async function showStats(userId: string) {
       if (count > 0) {
         try {
           // Use search with a dummy vector to get a sample
-          const dummyVector = Array(384).fill(0);
+          const dummyVector = Array(1024).fill(0);
           const sample = await table.search(dummyVector).limit(1).execute();
           if (sample.length > 0) {
             const doc = sample[0];
@@ -137,7 +137,7 @@ async function listDocuments(userId: string, limit = 10) {
     const table = await db.openTable('browsing_content');
     
     // Use search with dummy vector to get documents
-    const dummyVector = Array(384).fill(0);
+    const dummyVector = Array(1024).fill(0);
     const documents = await table.search(dummyVector).limit(limit).execute();
     
     if (documents.length === 0) {
@@ -169,7 +169,7 @@ async function showDocument(userId: string, documentId: string) {
     const table = await db.openTable('browsing_content');
     
     // Use search with filter
-    const dummyVector = Array(384).fill(0);
+    const dummyVector = Array(1024).fill(0);
     const results = await table.search(dummyVector)
       .filter(`id = '${documentId}'`)
       .limit(1)
@@ -204,7 +204,7 @@ async function searchDocuments(userId: string, query: string, limit = 10) {
     console.log(`\n🔍 Searching for: "${query}"\n`);
     console.log('Loading embeddings model...');
     
-    const embedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+    const embedder = await pipeline('feature-extraction', 'Qwen/Qwen3-Embedding-0.6B');
     console.log('Generating query embedding...');
     
     const output = await embedder(query, { pooling: 'mean', normalize: true });

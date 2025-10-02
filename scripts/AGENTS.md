@@ -56,7 +56,7 @@ Database Path: /Users/.../blueberry-browser/users/user-data/07bb0c68.../vector-d
 Table: browsing_content
   Total Documents: 8
   Fields: id, analysisId, userId, url, contentType, content, timestamp
-  Vector Dimension: 384
+  Vector Dimension: 1024
 ```
 
 ### `list <userId> [--limit N]`
@@ -100,7 +100,7 @@ Timestamp: 2025-10-01T07:14:52.810Z
 Content:
 Juventus Football Club - Sito Ufficiale | Juventus.com
 
-Vector (384 dimensions):
+Vector (1024 dimensions):
 [0.0097, 0.0941, -0.0419, -0.0791, 0.0126, 0.0483, -0.0294, -0.0577, -0.0023, 0.0357, ... 374 more]
 
 Full vector: [0.009715..., ...]
@@ -219,7 +219,7 @@ pnpm inspect-vectors search <userId> "financial services" --limit 3
 ## Technical Details
 
 - **Database**: LanceDB (embedded, disk-based)
-- **Embeddings Model**: `Xenova/all-MiniLM-L6-v2` (384 dimensions)
+- **Embeddings Model**: `Qwen/Qwen3-Embedding-0.6B` (1024 dimensions)
 - **Search Algorithm**: L2 distance with vector similarity
 - **Storage Location**: `~/Library/Application Support/blueberry-browser/users/user-data/{userId}/vector-db/`
 

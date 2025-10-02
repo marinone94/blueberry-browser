@@ -11,9 +11,9 @@ This document describes the vector search implementation for semantic search of 
 ### Technology Stack
 
 - **Vector Database**: LanceDB (embedded, no external services required)
-- **Embeddings**: Transformers.js v3 (`@huggingface/transformers`) with `Xenova/all-MiniLM-L6-v2` model
+- **Embeddings**: Transformers.js v3 (`@huggingface/transformers`) with `Qwen/Qwen3-Embedding-0.6B` model
 - **Storage**: Per-user vector databases in `user-data/{userId}/vector-db/`
-- **Embedding Dimension**: 384 (all-MiniLM-L6-v2 output)
+- **Embedding Dimension**: 1024 (all-MiniLM-L6-v2 output)
 
 ### Key Components
 
@@ -43,7 +43,7 @@ interface IndexedDocument {
   contentType: 'pageDescription' | 'title' | 'metaDescription' | 'screenshotDescription';
   content: string;               // The actual text
   timestamp: string;             // ISO timestamp
-  vector: number[];              // 384-dimensional embedding
+  vector: number[];              // 1024-dimensional embedding
 }
 ```
 
@@ -175,7 +175,7 @@ Remove vector documents from LanceDB
 ### Embeddings Generation
 - **Model Size**: ~25 MB (downloads once to app data)
 - **Speed**: ~50-100ms per text (local, no network)
-- **Dimension**: 384 floats = 1.5 KB per embedding
+- **Dimension**: 1024 floats = 1.5 KB per embedding
 - **4 embeddings per page**: ~6 KB vector data
 
 ### Storage
@@ -220,7 +220,7 @@ interface IndexedChatDocument {
   content: string;               // Message text or summary
   messageId?: string;            // Original message ID (for messages)
   timestamp: string;             // ISO timestamp
-  vector: number[];              // 384-dimensional embedding
+  vector: number[];              // 1024-dimensional embedding
 }
 ```
 

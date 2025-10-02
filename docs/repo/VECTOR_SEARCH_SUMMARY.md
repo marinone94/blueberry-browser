@@ -27,7 +27,7 @@
 ### Technical Details
 
 - **Vector DB**: LanceDB (embedded, disk-based)
-- **Embeddings Model**: `Xenova/all-MiniLM-L6-v2` (384 dimensions)
+- **Embeddings Model**: `Qwen/Qwen3-Embedding-0.6B` (1024 dimensions)
 - **Model Size**: ~25 MB (downloads once, cached locally)
 - **Storage**: `{appData}/users/user-data/{userId}/vector-db/`
 - **Privacy**: 100% local, no API calls, no data leaves machine

@@ -121,7 +121,7 @@ export class VectorSearchManager {
       console.log('VectorSearchManager: Loading embeddings model...');
       this.embedder = await pipeline(
         'feature-extraction',
-        'Xenova/all-MiniLM-L6-v2'
+        'Qwen/Qwen3-Embedding-0.6B'
       );
       console.log('VectorSearchManager: Embeddings model loaded');
 
@@ -565,7 +565,7 @@ export class VectorSearchManager {
           
           while (offset < Math.min(totalRows, 10000)) {  // Max 10k docs to scan
             const batch = await this.chatTable
-              .search(Array(384).fill(0))
+              .search(Array(1024).fill(0))
               .limit(batchSize)
               .execute();
             
