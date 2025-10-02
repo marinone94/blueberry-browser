@@ -18,6 +18,7 @@ export interface BrowsingHistoryEntry {
   title: string;
   visitedAt: Date;
   favicon?: string;
+  analysisId?: string; // Link to content analysis for semantic search
   // More fields to be defined later
 }
 
@@ -1121,6 +1122,31 @@ export class UserDataManager {
       return analysisIds;
     } catch (error) {
       console.error('UserDataManager: Error getting all analysis IDs:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get all content analyses for a user
+   */
+  async getAllContentAnalyses(userId: string): Promise<any[]> {
+    try {
+      const analysisDir = this.getContentAnalysisDir(userId);
+      const files = await fs.readdir(analysisDir);
+      const allAnalyses: any[] = [];
+      
+      for (const file of files) {
+        if (file.endsWith('.json') && file !== 'index.json') {
+          const filePath = join(analysisDir, file);
+          const data = await fs.readFile(filePath, 'utf-8');
+          const analyses = JSON.parse(data);
+          allAnalyses.push(...analyses);
+        }
+      }
+      
+      return allAnalyses;
+    } catch (error) {
+      console.error('UserDataManager: Error getting all content analyses:', error);
       return [];
     }
   }

@@ -622,12 +622,109 @@ export class EventManager {
       return await this.mainWindow.userDataManager.loadBrowsingHistory(currentUser.id);
     });
 
-    // Search browsing history
-    ipcMain.handle("search-browsing-history", async (_, query: string, limit?: number) => {
+    // Search browsing history with semantic search fallback
+    ipcMain.handle("search-browsing-history", async (_, query: string, limit: number = 50) => {
       const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
       if (!currentUser) return [];
       
-      return await this.mainWindow.userDataManager.searchHistory(currentUser.id, query, limit);
+      console.log(`[EventManager] Browsing history search: { query: '${query}', limit: ${limit} }`);
+      
+      // Try basic text search first
+      const basicResults = await this.mainWindow.userDataManager.searchHistory(currentUser.id, query, limit);
+      console.log(`[EventManager] Basic search results: ${basicResults.length}`);
+      
+      // If basic search found results, return them
+      if (basicResults.length > 0) {
+        return basicResults;
+      }
+      
+      // Fall back to semantic vector search
+      console.log('[EventManager] No basic results, trying semantic search...');
+      try {
+        const vectorResults = await this.mainWindow.vectorSearchManager.searchBrowsingContent(
+          currentUser.id,
+          query,
+          { limit: limit * 2 } // Get more results to group by analysisId
+        );
+        console.log(`[EventManager] Semantic search results: ${vectorResults.length}`);
+        
+        if (vectorResults.length === 0) {
+          return [];
+        }
+        
+        // Load full browsing history and all content analyses to map vector results
+        const fullHistory = await this.mainWindow.userDataManager.loadBrowsingHistory(currentUser.id);
+        const allAnalyses = await this.mainWindow.userDataManager.getAllContentAnalyses(currentUser.id);
+        
+        // Create a map of analysisId -> URL for matching
+        const analysisUrlMap = new Map<string, string>();
+        for (const analysis of allAnalyses) {
+          analysisUrlMap.set(analysis.analysisId, analysis.url);
+        }
+        
+        // Create a map of analysisId -> history entry by matching URLs
+        const historyMap = new Map<string, any>();
+        for (const entry of fullHistory) {
+          // Direct match if entry has analysisId
+          if (entry.analysisId) {
+            historyMap.set(entry.analysisId, entry);
+          } else {
+            // Try to match by URL - find all analyses for this URL
+            for (const [analysisId, analysisUrl] of analysisUrlMap.entries()) {
+              if (analysisUrl === entry.url && !historyMap.has(analysisId)) {
+                // Match by URL, prioritizing more recent history entries
+                historyMap.set(analysisId, entry);
+                break; // Take first match to avoid duplicates
+              }
+            }
+          }
+        }
+        
+        // Map vector results to history entries and attach scores
+        const resultsMap = new Map<string, { entry: any; score: number }>();
+        for (const vectorResult of vectorResults) {
+          const historyEntry = historyMap.get(vectorResult.analysisId);
+          if (historyEntry) {
+            const existing = resultsMap.get(historyEntry.id);
+            // Keep the highest score for each entry
+            if (!existing || vectorResult.score > existing.score) {
+              resultsMap.set(historyEntry.id, {
+                entry: historyEntry,
+                score: vectorResult.score
+              });
+            }
+          }
+        }
+        
+        // Sort by score (primary) and visit date (secondary)
+        const sortedResults = Array.from(resultsMap.values())
+          .sort((a, b) => {
+            // Primary sort: higher score first
+            const scoreDiff = b.score - a.score;
+            if (Math.abs(scoreDiff) > 0.01) { // Significant score difference
+              return scoreDiff;
+            }
+            // Secondary sort: more recent visit first (for similar scores)
+            const aDate = new Date(a.entry.visitedAt).getTime();
+            const bDate = new Date(b.entry.visitedAt).getTime();
+            return bDate - aDate;
+          })
+          .slice(0, limit)
+          .map(r => ({
+            ...r.entry,
+            _searchScore: r.score,
+            _matchType: 'semantic'
+          }));
+        
+        console.log(`[EventManager] Returning ${sortedResults.length} semantic results with scores:`, 
+          sortedResults.slice(0, 3).map(r => ({ title: r.title, score: r._searchScore?.toFixed(3) }))
+        );
+        
+        return sortedResults;
+      } catch (error) {
+        console.error('[EventManager] Semantic search failed:', error);
+        return [];
+      }
     });
 
     // Clear browsing history
