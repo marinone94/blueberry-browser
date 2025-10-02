@@ -20,6 +20,23 @@ import { homedir } from 'os';
 const APP_DATA = join(homedir(), 'Library', 'Application Support', 'blueberry-browser');
 env.cacheDir = join(APP_DATA, 'models');
 
+// ============================================================================
+// TYPE DEFINITIONS
+// ============================================================================
+
+// Type definitions for LanceDB results
+interface LanceDBDocument {
+  id: string;
+  analysisId: string;
+  userId: string;
+  url: string;
+  contentType: string;
+  content: string;
+  timestamp: string;
+  vector: number[];
+  _distance?: number;
+}
+
 const USERS_DIR = join(APP_DATA, 'users', 'user-data');
 
 // ============================================================================
@@ -113,7 +130,7 @@ async function showStats(userId: string) {
         try {
           // Use search with a dummy vector to get a sample
           const dummyVector = Array(384).fill(0);
-          const sample = await table.search(dummyVector).limit(1).execute();
+          const sample = await table.search(dummyVector).limit(1).execute() as LanceDBDocument[];
           if (sample.length > 0) {
             const doc = sample[0];
             console.log(`  Fields: ${Object.keys(doc).filter(k => k !== 'vector' && !k.startsWith('_')).join(', ')}`);
@@ -138,7 +155,7 @@ async function listDocuments(userId: string, limit = 10) {
     
     // Use search with dummy vector to get documents
     const dummyVector = Array(384).fill(0);
-    const documents = await table.search(dummyVector).limit(limit).execute();
+    const documents = await table.search(dummyVector).limit(limit).execute() as LanceDBDocument[];
     
     if (documents.length === 0) {
       console.log('\nNo documents found.\n');
@@ -173,7 +190,7 @@ async function showDocument(userId: string, documentId: string) {
     const results = await table.search(dummyVector)
       .filter(`id = '${documentId}'`)
       .limit(1)
-      .execute();
+      .execute() as LanceDBDocument[];
     
     if (results.length === 0) {
       console.log(`\nDocument ${documentId} not found.\n`);
@@ -218,7 +235,7 @@ async function searchDocuments(userId: string, query: string, limit = 10) {
     const results = await table
       .search(queryEmbedding)
       .limit(limit)
-      .execute();
+      .execute() as LanceDBDocument[];
     
     if (results.length === 0) {
       console.log('No results found.\n');
@@ -235,7 +252,7 @@ async function searchDocuments(userId: string, query: string, limit = 10) {
         ? 1 / (1 + doc._distance)
         : 0;
       
-      console.log(`${i + 1}. Score: ${score.toFixed(4)} (distance: ${doc._distance?.toFixed(4)})`);
+      console.log(`${i + 1}. Score: ${score.toFixed(4)} (distance: ${doc._distance?.toFixed(4) || 'N/A'})`);
       console.log(`   Type: ${doc.contentType}`);
       console.log(`   URL: ${truncate(doc.url, 60)}`);
       console.log(`   Content: ${truncate(doc.content, 100)}`);

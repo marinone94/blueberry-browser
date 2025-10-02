@@ -78,12 +78,25 @@ export const HistoryProvider: React.FC<HistoryProviderProps> = ({ children }) =>
           mode: (results[0] as any)?._searchMode || 'unknown'
         })
         
+        // Process results and convert dates
         const processedResults = results.map(entry => ({
           ...entry,
           visitedAt: new Date(entry.visitedAt)
-        })).sort((a, b) => b.visitedAt.getTime() - a.visitedAt.getTime()) // Sort newest first
+        }))
         
-        setHistory(processedResults)
+        // Check if results are from semantic search (have _searchScore)
+        const hasSemanticScores = processedResults.some((entry: any) => entry._searchScore !== undefined)
+        
+        if (hasSemanticScores) {
+          // For semantic search results, keep backend sort order (already sorted by score + date)
+          console.log('[HistoryContext] Using semantic search sort order (score + recency)')
+          setHistory(processedResults)
+        } else {
+          // For basic text search, sort by visit date (newest first)
+          console.log('[HistoryContext] Using date sort order (basic search)')
+          const sortedResults = processedResults.sort((a, b) => b.visitedAt.getTime() - a.visitedAt.getTime())
+          setHistory(sortedResults)
+        }
       } else {
         console.log('[HistoryContext] Empty query, loading full history')
         await refreshHistory()

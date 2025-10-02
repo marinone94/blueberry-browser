@@ -175,7 +175,7 @@ Remove vector documents from LanceDB
 ### Embeddings Generation
 - **Model Size**: ~25 MB (downloads once to app data)
 - **Speed**: ~50-100ms per text (local, no network)
-- **Dimension**: 384 floats = 1.5 KB per embedding
+- **Dimension**: 384 floats = ~1.5 KB per embedding
 - **4 embeddings per page**: ~6 KB vector data
 
 ### Storage

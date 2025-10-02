@@ -298,7 +298,7 @@ export class VectorSearchManager {
         contentType: result.contentType,
         content: result.content,
         timestamp: new Date(result.timestamp),
-        score: result._distance ? 1 - result._distance : 0 // Convert distance to similarity
+        score: result._distance !== undefined ? 1 / (1 + result._distance) : 0 // Convert L2 distance to similarity score
       }));
     } catch (error) {
       console.error('VectorSearchManager: Search failed:', error);
@@ -800,7 +800,7 @@ export class VectorSearchManager {
         content: result.content,
         messageId: result.messageId,
         timestamp: new Date(result.timestamp),
-        score: result._distance ? 1 - result._distance : 0
+        score: result._distance !== undefined ? 1 / (1 + result._distance) : 0 // Convert L2 distance to similarity score
       }));
     } catch (error) {
       console.error('VectorSearchManager: Chat search failed:', error);
