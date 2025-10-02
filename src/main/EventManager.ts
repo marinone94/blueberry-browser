@@ -285,6 +285,27 @@ export class EventManager {
       }
     });
 
+    ipcMain.handle("reindex-browsing-history", async () => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) {
+        console.log('[EventManager] No current user, cannot re-index browsing history');
+        return { success: false, error: 'No current user', indexed: 0, skipped: 0, alreadyIndexed: 0, errors: 0 };
+      }
+
+      try {
+        console.log('[EventManager] Starting browsing history re-index (missing entries only)...');
+        const result = await this.mainWindow.vectorSearchManager.reindexAllBrowsingHistory(
+          currentUser.id,
+          this.mainWindow.userDataManager
+        );
+        console.log('[EventManager] Browsing history re-index completed:', result);
+        return result;
+      } catch (error) {
+        console.error('[EventManager] Browsing history re-index failed:', error);
+        return { success: false, error: String(error), indexed: 0, skipped: 0, alreadyIndexed: 0, errors: 0 };
+      }
+    });
+
     ipcMain.handle("search-chat-history", async (_, query: string, options?: {
       exactMatch?: boolean;
       dateFrom?: string;
@@ -622,36 +643,76 @@ export class EventManager {
       return await this.mainWindow.userDataManager.loadBrowsingHistory(currentUser.id);
     });
 
-    // Search browsing history with semantic search fallback
-    ipcMain.handle("search-browsing-history", async (_, query: string, limit: number = 50) => {
+    // Search browsing history with smart search (string first, semantic fallback)
+    ipcMain.handle("search-browsing-history", async (_, query: string, options?: {
+      limit?: number;
+      exactMatch?: boolean;
+    }) => {
+      const startTime = Date.now();
       const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
       if (!currentUser) return [];
+
+      const limit = options?.limit || 50;
       
-      console.log(`[EventManager] Browsing history search: { query: '${query}', limit: ${limit} }`);
+      // Check if query is surrounded by quotes for exact match only
+      let searchQuery = query.trim();
+      let exactMatchOnly = options?.exactMatch || false;
       
-      // Try basic text search first
-      const basicResults = await this.mainWindow.userDataManager.searchHistory(currentUser.id, query, limit);
-      console.log(`[EventManager] Basic search results: ${basicResults.length}`);
-      
-      // If basic search found results, return them
-      if (basicResults.length > 0) {
-        return basicResults;
+      if (searchQuery.startsWith('"') && searchQuery.endsWith('"')) {
+        exactMatchOnly = true;
+        searchQuery = searchQuery.slice(1, -1); // Remove quotes
       }
-      
-      // Fall back to semantic vector search
+
+      console.log('[EventManager] Browsing history search:', {
+        query: searchQuery,
+        exactMatchOnly,
+        limit,
+        timestamp: new Date().toISOString()
+      });
+
+      // Step 1: Try basic string search (title/URL contains query)
+      const basicResults = await this.mainWindow.userDataManager.searchHistory(
+        currentUser.id, 
+        searchQuery, 
+        limit
+      );
+
+      console.log('[EventManager] Basic search results:', basicResults.length);
+
+      // If we have results or exact match only, return basic results
+      if (basicResults.length > 0 || exactMatchOnly) {
+        const duration = Date.now() - startTime;
+        console.log('[EventManager] Returning basic search results:', {
+          count: basicResults.length,
+          durationMs: duration,
+          searchMode: exactMatchOnly ? 'EXACT_ONLY' : 'BASIC'
+        });
+        return basicResults.map(r => ({
+          ...r,
+          _searchMode: exactMatchOnly ? 'exact' : 'basic'
+        }));
+      }
+
+      // Step 2: Fallback to semantic search if no basic results
       console.log('[EventManager] No basic results, trying semantic search...');
+      
       try {
-        const vectorResults = await this.mainWindow.vectorSearchManager.searchBrowsingContent(
+        const semanticResults = await this.mainWindow.vectorSearchManager.searchBrowsingContent(
           currentUser.id,
-          query,
-          { limit: limit * 2 } // Get more results to group by analysisId
+          searchQuery,
+          { limit: limit * 2 } // Get more for grouping
         );
-        console.log(`[EventManager] Semantic search results: ${vectorResults.length}`);
-        
-        if (vectorResults.length === 0) {
+
+        console.log('[EventManager] Semantic search results:', semanticResults.length);
+
+        if (semanticResults.length === 0) {
+          const duration = Date.now() - startTime;
+          console.log('[EventManager] No results found:', {
+            durationMs: duration
+          });
           return [];
         }
-        
+
         // Load full browsing history and all content analyses to map vector results
         const fullHistory = await this.mainWindow.userDataManager.loadBrowsingHistory(currentUser.id);
         const allAnalyses = await this.mainWindow.userDataManager.getAllContentAnalyses(currentUser.id);
@@ -681,8 +742,8 @@ export class EventManager {
         }
         
         // Map vector results to history entries and attach scores
-        const resultsMap = new Map<string, { entry: any; score: number }>();
-        for (const vectorResult of vectorResults) {
+        const resultsMap = new Map<string, { entry: any; score: number; contentType: string; content: string }>();
+        for (const vectorResult of semanticResults) {
           const historyEntry = historyMap.get(vectorResult.analysisId);
           if (historyEntry) {
             const existing = resultsMap.get(historyEntry.id);
@@ -690,7 +751,9 @@ export class EventManager {
             if (!existing || vectorResult.score > existing.score) {
               resultsMap.set(historyEntry.id, {
                 entry: historyEntry,
-                score: vectorResult.score
+                score: vectorResult.score,
+                contentType: vectorResult.contentType,
+                content: vectorResult.content
               });
             }
           }
@@ -712,14 +775,25 @@ export class EventManager {
           .slice(0, limit)
           .map(r => ({
             ...r.entry,
+            _searchMode: 'semantic' as const,
             _searchScore: r.score,
-            _matchType: 'semantic'
+            _matchedContent: r.content,
+            _matchedContentType: r.contentType
           }));
-        
-        console.log(`[EventManager] Returning ${sortedResults.length} semantic results with scores:`, 
-          sortedResults.slice(0, 3).map(r => ({ title: r.title, score: r._searchScore?.toFixed(3) }))
-        );
-        
+
+        const duration = Date.now() - startTime;
+        console.log('[EventManager] Returning semantic search results:', {
+          count: sortedResults.length,
+          durationMs: duration,
+          searchMode: 'SEMANTIC',
+          topScores: sortedResults.slice(0, 5).map(r => ({
+            title: r.title,
+            score: r._searchScore?.toFixed(3),
+            contentType: r._matchedContentType,
+            visitedAt: r.visitedAt
+          }))
+        });
+
         return sortedResults;
       } catch (error) {
         console.error('[EventManager] Semantic search failed:', error);

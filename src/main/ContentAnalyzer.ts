@@ -18,6 +18,7 @@ interface AnalysisQueueItem {
   activityId: string;
   userId: string;
   url: string;
+  historyEntryId?: string;  // Link to browsing history entry
   timestamp: Date;
   status: 'pending' | 'in_progress';
   retryCount: number;
@@ -316,11 +317,12 @@ export class ContentAnalyzer {
       
       await this.saveTempAnalysisData(userId, activityId, tempData);
 
-      // Queue new analysis
+      // Queue new analysis with history entry ID
       await this.addToQueue({
         activityId,
         userId,
         url,
+        historyEntryId: tab.currentHistoryId,  // Link to browsing history
         timestamp: new Date()
       });
 
@@ -521,6 +523,19 @@ export class ContentAnalyzer {
       // Update index
       const indexKey = `${queueItem.url}:${analysisResult.htmlHash}:${analysisResult.screenshotHash}`;
       await this.userDataManager.updateAnalysisIndex(queueItem.userId, indexKey, analysisId);
+
+      // Link analysis to browsing history entry
+      if (queueItem.historyEntryId) {
+        try {
+          await this.userDataManager.linkHistoryToAnalysis(
+            queueItem.userId,
+            queueItem.historyEntryId,
+            analysisId
+          );
+        } catch (linkError) {
+          console.error('ContentAnalyzer: Failed to link history entry:', linkError);
+        }
+      }
 
       // Index content in vector database
       try {

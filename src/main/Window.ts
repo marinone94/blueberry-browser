@@ -205,13 +205,19 @@ export class Window {
     const sessionPartition = this._userAccountManager.getCurrentSessionPartition();
     
     // Create history callback
-    const historyCallback: HistoryCallback = (entry) => {
+    const historyCallback: HistoryCallback = async (entry) => {
       const currentUser = this._userAccountManager.getCurrentUser();
       if (currentUser) {
-        this._userDataManager.addHistoryEntry(currentUser.id, entry).catch(error => {
+        try {
+          const historyEntry = await this._userDataManager.addHistoryEntry(currentUser.id, entry);
+          // Return the history entry so Tab can use it
+          return historyEntry;
+        } catch (error) {
           console.error('Failed to save history entry:', error);
-        });
+          return undefined;
+        }
       }
+      return undefined;
     };
     
     const tab = new Tab(tabId, url, sessionPartition, historyCallback);

@@ -455,7 +455,7 @@ export class UserDataManager {
   /**
    * Browsing History Management
    */
-  async addHistoryEntry(userId: string, entry: Omit<BrowsingHistoryEntry, 'id'>): Promise<void> {
+  async addHistoryEntry(userId: string, entry: Omit<BrowsingHistoryEntry, 'id'>): Promise<BrowsingHistoryEntry> {
     const history = await this.loadBrowsingHistory(userId);
     
     // Check if URL already exists in recent history (within last hour)
@@ -464,10 +464,13 @@ export class UserDataManager {
       h.url === entry.url && new Date(h.visitedAt) > oneHourAgo
     );
     
+    let returnEntry: BrowsingHistoryEntry;
+    
     if (existingIndex >= 0) {
       // Update existing entry with new timestamp
       history[existingIndex].visitedAt = entry.visitedAt;
       history[existingIndex].title = entry.title; // Update title in case it changed
+      returnEntry = history[existingIndex];
     } else {
       // Add new entry
       const newEntry: BrowsingHistoryEntry = {
@@ -475,6 +478,7 @@ export class UserDataManager {
         ...entry
       };
       history.unshift(newEntry); // Add to beginning
+      returnEntry = newEntry;
     }
     
     // Keep only last maxHistoryEntries entries
@@ -483,6 +487,21 @@ export class UserDataManager {
     }
     
     await this.saveBrowsingHistory(userId, history);
+    return returnEntry;
+  }
+
+  /**
+   * Link a browsing history entry to its content analysis
+   */
+  async linkHistoryToAnalysis(userId: string, historyEntryId: string, analysisId: string): Promise<void> {
+    const history = await this.loadBrowsingHistory(userId);
+    const entry = history.find(h => h.id === historyEntryId);
+    
+    if (entry) {
+      entry.analysisId = analysisId;
+      await this.saveBrowsingHistory(userId, history);
+      console.log(`UserDataManager: Linked history entry ${historyEntryId} to analysis ${analysisId}`);
+    }
   }
 
   async saveBrowsingHistory(userId: string, history: BrowsingHistoryEntry[]): Promise<void> {
@@ -546,12 +565,70 @@ export class UserDataManager {
     const history = await this.loadBrowsingHistory(userId);
     const searchTerm = query.toLowerCase();
     
-    return history
-      .filter(entry => 
-        entry.title.toLowerCase().includes(searchTerm) || 
-        entry.url.toLowerCase().includes(searchTerm)
-      )
-      .slice(0, limit);
+    console.log(`[UserDataManager] Searching ${history.length} history entries for: "${searchTerm}"`);
+    
+    // Search in title, URL, page description, and screenshot description
+    const matches: BrowsingHistoryEntry[] = [];
+    let analysisChecked = 0;
+    let analysisFound = 0;
+    let analysisLinked = 0;
+    
+    for (const entry of history) {
+      // Check title and URL first (fast)
+      if (entry.title.toLowerCase().includes(searchTerm) || 
+          entry.url.toLowerCase().includes(searchTerm)) {
+        matches.push(entry);
+        console.log(`[UserDataManager] Match found in title/URL: ${entry.title}`);
+        continue;
+      }
+      
+      // Check content analysis data (page description and screenshot description)
+      // Use the analysisId link if available, otherwise skip
+      if (entry.analysisId) {
+        analysisLinked++;
+        try {
+          analysisChecked++;
+          const analysis = await this.getContentAnalysis(userId, entry.analysisId);
+          if (analysis) {
+            analysisFound++;
+            const pageDescMatch = analysis.pageDescription && 
+              analysis.pageDescription.toLowerCase().includes(searchTerm);
+            const screenshotMatch = analysis.screenshotDescription && 
+              analysis.screenshotDescription.toLowerCase().includes(searchTerm);
+            
+            if (pageDescMatch || screenshotMatch) {
+              matches.push(entry);
+              console.log(`[UserDataManager] Match found in content analysis:`, {
+                title: entry.title,
+                url: entry.url,
+                analysisId: entry.analysisId,
+                pageDescMatch: !!pageDescMatch,
+                screenshotMatch: !!screenshotMatch,
+                pageDescSnippet: analysis.pageDescription?.substring(0, 100)
+              });
+            }
+          }
+        } catch (error) {
+          console.warn(`[UserDataManager] Error loading analysis ${entry.analysisId}:`, error);
+          continue;
+        }
+      }
+      
+      // Stop if we've hit the limit
+      if (matches.length >= limit) {
+        break;
+      }
+    }
+    
+    console.log(`[UserDataManager] Search complete:`, {
+      totalEntries: history.length,
+      analysisLinked,
+      analysisChecked,
+      analysisFound,
+      matches: matches.length
+    });
+    
+    return matches.slice(0, limit);
   }
 
   /**

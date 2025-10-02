@@ -27,7 +27,7 @@
 ### Technical Details
 
 - **Vector DB**: LanceDB (embedded, disk-based)
-- **Embeddings Model**: `Qwen/Qwen3-Embedding-0.6B` (1024 dimensions)
+- **Embeddings Model**: `Xenova/all-MiniLM-L6-v2` (384 dimensions)
 - **Model Size**: ~25 MB (downloads once, cached locally)
 - **Storage**: `{appData}/users/user-data/{userId}/vector-db/`
 - **Privacy**: 100% local, no API calls, no data leaves machine
@@ -157,14 +157,43 @@ pnpm typecheck:node  # Passes
 - Works with both search modes
 - Inclusive date ranges
 
-## 🚫 What's NOT Implemented (Yet)
+## ✅ Phase 3: Smart Browsing History Search (COMPLETED)
 
-### Phase 3: Browsing History Search UI
-- [ ] Search UI for browsing content (similar to chat search)
-- [ ] IPC handler for browsing content search
-- [ ] Result display with page previews
-- [ ] Integration with existing browsing history UI
-- [ ] Navigation from search results
+### Implementation Details
+
+**Smart Search with Fallback Strategy**:
+1. **Primary**: Basic string search (title/URL/page description/screenshot description contains query)
+2. **Fallback**: Semantic search if no basic results found
+3. **Quote mode**: Exact match only (skips semantic search)
+
+**Backend Implementation**:
+- `search-browsing-history` handler in `EventManager.ts` with hybrid search logic
+- Basic search in `UserDataManager.searchHistory()` searches across:
+  - Title (fast, in-memory)
+  - URL (fast, in-memory)
+  - Page description (from content analysis)
+  - Screenshot description (from content analysis)
+- Groups semantic results by `analysisId` for better UX
+- Enriches results with search metadata (`_searchMode`, `_searchScore`, `_matchedContent`)
+
+**Re-indexing Capability**:
+- `reindexAllBrowsingHistory()` method in `VectorSearchManager`
+- **Optimized**: Only indexes missing entries (checks existing index first)
+- Re-indexes existing content analysis data without re-analyzing
+- Returns detailed stats: `{ success, indexed, skipped, alreadyIndexed, errors }`
+- Available via Dev menu: "Developer > Re-index Browsing History"
+
+**Frontend Integration**:
+- `HistoryContext` uses new smart search API
+- Existing History UI automatically benefits from semantic search
+- Consistent UX with chat history search
+
+**Search Modes**:
+- `basic` - Title/URL substring match
+- `semantic` - AI-powered content understanding
+- `exact` - Quoted queries for precise matching
+
+## 🚫 What's NOT Implemented (Yet)
 
 ### Phase 4: Advanced Features
 - [ ] Hybrid search (vector + keyword combined)
@@ -176,38 +205,7 @@ pnpm typecheck:node  # Passes
 
 ## 🎯 Next Steps
 
-### Immediate (Browsing History Search UI)
-
-1. **Add IPC Handlers** in `EventManager.ts`:
-   ```typescript
-   ipcMain.handle('search-browsing-content', async (event, query, options) => {
-     const userId = this.window.currentUserId;
-     return await this.window._vectorSearchManager.searchBrowsingContent(
-       userId, query, options
-     );
-   });
-   ```
-
-2. **Update Preload Scripts** (`sidebar.ts`):
-   ```typescript
-   searchBrowsingContent: (query: string, options?: SearchOptions) =>
-     ipcRenderer.invoke('search-browsing-content', query, options)
-   ```
-
-3. **Create Browsing Search UI Component**:
-   - Reuse `ChatSearchBar` pattern for consistency
-   - Search input with debouncing
-   - Results list with page previews and relevance scores
-   - Click to navigate to page
-   - Filter by content type (page/screenshot description)
-
-4. **Integrate with Existing Browsing History UI**:
-   - Add search bar to History.tsx (like ChatHistory.tsx)
-   - Show both keyword and semantic results
-   - Highlight best matches
-   - Same clear/filter UX pattern
-
-### Future
+### Phase 4: Advanced Features
 
 - Advanced search features (Phase 4)
   - Hybrid search combining vector + keyword
