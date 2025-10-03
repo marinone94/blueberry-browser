@@ -80,6 +80,20 @@ interface ChatHistory {
   updatedAt: Date;
 }
 
+interface ProactiveInsight {
+  id: string;
+  userId: string;
+  type: 'workflow' | 'research' | 'abandoned' | 'habit';
+  title: string;
+  description: string;
+  actionType: 'open_urls' | 'resume_research' | 'remind' | 'create_workflow';
+  actionParams: any;
+  patterns: any[];
+  relevanceScore: number;
+  createdAt: Date;
+  triggeredAt?: Date;
+}
+
 interface SidebarAPI {
   // Chat functionality
   sendChatMessage: (request: Partial<ChatRequest>) => Promise<void>;
@@ -136,6 +150,12 @@ interface SidebarAPI {
   getActivityDateRange: (userId: string) => Promise<{startDate: string, endDate: string, totalDays: number}>;
   clearActivityData: (userId: string, beforeDate?: string) => Promise<{success: boolean, error?: string}>;
   getActivityDataSize: (userId: string) => Promise<number>;
+  
+  // Proactive Insights functionality
+  analyzeBehavior: () => Promise<ProactiveInsight[]>;
+  getInsights: () => Promise<ProactiveInsight[]>;
+  checkInsightTriggers: (currentUrl: string, recentActivities: any[]) => Promise<ProactiveInsight[]>;
+  executeInsightAction: (insightId: string) => Promise<{success: boolean, message?: string, error?: string}>;
   
   // Listen for messages from topbar
   onTopbarMessage: (callback: (type: string, data: any) => void) => void;

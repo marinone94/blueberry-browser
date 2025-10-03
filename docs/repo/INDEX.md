@@ -97,6 +97,22 @@ Complete guide to the local vector search implementation for browsing and chat h
 
 **Use this** for understanding the vector search architecture and implementing semantic search features.
 
+### [PROACTIVE_INSIGHTS_IMPLEMENTATION.md](./PROACTIVE_INSIGHTS_IMPLEMENTATION.md)
+**AI Proactive Task Intelligence**
+
+Advanced feature that analyzes user browsing behavior to detect patterns and provide actionable insights:
+
+- **Pure Semantic Session Segmentation**: LLM-based context switching without arbitrary time limits
+- **Multi-Strategy Pattern Detection**: 4 parallel strategies (workflows, research, abandonment, habits)
+- **Scoring & Ranking**: Composite scoring based on frequency, recency, and impact
+- **One-Click Actions**: Execute workflows, resume tasks, and automate repetitive patterns
+- **Algorithm Design**: Content-based sequence comparison, LLM-powered analysis, temporal pattern detection
+- **Cost Analysis**: ~$5/year per active user with efficient model usage
+- **Implementation**: ProactiveInsightsManager, IPC integration, React UI components
+- **Data Flow**: Leverages activity tracking, content analysis, and vector search infrastructure
+
+**Use this** for understanding the proactive insights architecture and implementing intelligent behavior analysis features.
+
 ---
 
 ## 🚀 Quick Start
@@ -183,6 +199,7 @@ blueberry-browser/
 - ✅ **Multi-user accounts** with complete data isolation and session partitioning
 - ✅ **Per-user browsing history** with search and smart navigation
 - ✅ **Comprehensive activity tracking** with 13 activity types and buffered collection
+- ✅ **AI proactive insights** with pattern detection and one-click workflow automation
 - ✅ **Screenshot integration** for visual AI analysis
 - ✅ **Dark mode synchronization** across all processes
 - ✅ **Native menu integration** with keyboard shortcuts

@@ -11,6 +11,7 @@ This document traces the complete code execution paths for each major feature in
 - [User Account Management](#user-account-management)
 - [Activity Tracking System](#activity-tracking-system)
 - [Content Analysis System](#content-analysis-system)
+- [AI Proactive Insights](#ai-proactive-insights)
 
 ---
 
@@ -297,7 +298,6 @@ This document traces the complete code execution paths for each major feature in
      result = await streamText({
        model: this.model, // OpenAI or Anthropic
        messages,
-       temperature: 0.7
      })
      
      // Process stream chunk by chunk
@@ -2204,7 +2204,6 @@ See [Cookie Dialog Detection Documentation](./COOKIE_DIALOG_DETECTION.md) for co
      // Retry with more explicit instructions
      result = await streamText({
        messages: [...previousMessages, { role: 'user', content: retryPrompt }],
-       temperature: 0.1  // Lower temperature for stricter output
      })
    }
    
@@ -2400,7 +2399,6 @@ async getScreenshotWithMetadata() → {
   // Request
   prompt: string                        // Complete prompt sent to LLM
   screenshotPath: string                // Reference only, not base64
-  temperature?: number
   maxTokens?: number
   
   // Response
@@ -2492,6 +2490,424 @@ For `https://www.google.com`:
 ```
 
 This intelligent content analysis system enables advanced features like semantic search across browsing history, automatic content categorization, and proactive browsing assistance based on deep understanding of visited pages.
+
+---
+
+## AI Proactive Insights
+
+**Purpose**: Analyze user browsing patterns to detect workflows, research topics, abandoned tasks, and habits, then provide actionable insights to enhance productivity.
+
+### Analyzing User Behavior
+
+**User Action**: Click "Insights" button in sidebar, then "Analyze Behavior"
+
+**Complete Flow**:
+
+1. **UI Interaction** (`Insights.tsx`):
+   ```typescript
+   <Button onClick={analyzeBehavior}>Analyze Behavior</Button>
+   
+   analyzeBehavior() → {
+     setIsAnalyzing(true)
+     const insights = await window.sidebarAPI.analyzeBehavior()
+     setInsights(insights)
+     setIsAnalyzing(false)
+   }
+   ```
+
+2. **Preload Bridge** (`sidebar.ts`):
+   ```typescript
+   analyzeBehavior: () => electronAPI.ipcRenderer.invoke("analyze-behavior")
+   ```
+
+3. **Main Process IPC** (`EventManager.ts`):
+   ```typescript
+   ipcMain.handle("analyze-behavior", async () => {
+     const currentUser = mainWindow.userAccountManager.getCurrentUser()
+     const insights = await mainWindow.proactiveInsightsManager.analyzeUserBehavior(currentUser.id)
+     return insights
+   })
+   ```
+
+4. **Insights Manager** (`ProactiveInsightsManager.ts`):
+   ```typescript
+   analyzeUserBehavior(userId) → {
+     // Load last 7 days of activity
+     const activities = await loadUserActivities(userId)
+     const contentAnalyses = await loadContentAnalyses(userId)
+     
+     // Enrich activities with content analysis
+     const enrichedActivities = enrichActivities(activities, contentAnalyses)
+     
+     // LLM-powered semantic session segmentation
+     const sessions = await segmentSessions(enrichedActivities, userId)
+     
+     // Parallel pattern detection
+     const [sequential, topic, abandoned, temporal] = await Promise.all([
+       findSequentialPatterns(sessions),    // Recurring workflows
+       findTopicPatterns(sessions),         // Research topics
+       findAbandonedTasks(sessions),        // Incomplete tasks
+       findTemporalPatterns(enrichedActivities) // Time-based habits
+     ])
+     
+     // Score, rank, and generate insights
+     const rankedPatterns = rankPatterns([...sequential, ...topic, ...abandoned, ...temporal])
+     const insights = await generateInsights(rankedPatterns, userId)
+     
+     // Cache for quick access
+     insightsCache.set(userId, insights)
+     
+     return insights
+   }
+   ```
+
+5. **Pattern Detection Details**:
+
+   **Sequential Patterns** (Workflows):
+   ```typescript
+   findSequentialPatterns(sessions) → {
+     // Extract content sequences (category + subcategory + brand)
+     const contentSequences = sessions
+       .filter(s => s.activities.length >= 2 && s.activities.length <= 5)
+       .map(s => s.activities.map(a => ({
+         category: a.analysis.category,
+         subcategory: a.analysis.subcategory,
+         brand: a.analysis.brand
+       })))
+     
+     // Compare sequences for similarity (>0.7 threshold)
+     for (seq1 of sequences) {
+       for (seq2 of sequences) {
+         if (compareSequences(seq1, seq2) > 0.7) {
+           // Found recurring pattern
+           patterns.add({ steps: seq1, frequency: count })
+         }
+       }
+     }
+     
+     // LLM names the workflow
+     for (pattern of patterns) {
+       pattern.semanticTheme = await llmExtractWorkflowTheme(pattern)
+     }
+     
+     return patterns
+   }
+   ```
+
+   **Topic Patterns** (Research):
+   ```typescript
+   findTopicPatterns(sessions) → {
+     // Group by category
+     const categoryGroups = groupBy(sessions, s => s.primaryCategory)
+     
+     for ([category, sessionGroup] of categoryGroups) {
+       if (sessionGroup.length < 2) continue
+       
+       // LLM analyzes research goal and extracts insights
+       const analysis = await llmAnalyzeResearchTopic(category, sessionGroup)
+       
+       patterns.push({
+         mainCategory: category,
+         semanticSummary: analysis.summary,
+         keyInsights: analysis.insights,
+         sessions: sessionGroup
+       })
+     }
+     
+     return patterns
+   }
+   ```
+
+   **Abandonment Patterns**:
+   ```typescript
+   findAbandonedTasks(sessions) → {
+     for (session of sessions) {
+       // LLM analyzes completion
+       const analysis = await llmAnalyzeCompletion(session)
+       
+       if (analysis.completionScore < 0.6) {
+         abandoned.push({
+           session,
+           intent: analysis.intent,
+           progressMade: analysis.progress,
+           whyAbandoned: analysis.reason,
+           suggestions: analysis.suggestions
+         })
+       }
+     }
+     
+     return abandoned
+   }
+   ```
+
+   **Temporal Patterns** (Habits):
+   ```typescript
+   findTemporalPatterns(activities) → {
+     // Group by (day_of_week, hour, domain)
+     const timeBuckets = new Map()
+     
+     for (activity of activities) {
+       const key = `${day}-${hour}-${domain}`
+       timeBuckets.get(key).count++
+     }
+     
+     // Find patterns with frequency >= 3
+     return timeBuckets.filter(bucket => bucket.count >= 3)
+   }
+   ```
+
+6. **Session Segmentation** (LLM-Based):
+   ```typescript
+   segmentSessions(activities, userId) → {
+     const sessions = []
+     let currentSession = [activities[0]]
+     
+     for (i = 1 to activities.length) {
+       const prev = activities[i - 1]
+       const curr = activities[i]
+       
+       // LLM decides if context switched
+       const decision = await llmDecideSessionBoundary(prev.analysis, curr.analysis)
+       
+       if (decision.decision === 'NEW') {
+         sessions.push(createSession(currentSession, userId))
+         currentSession = [curr]
+       } else {
+         currentSession.push(curr)
+       }
+     }
+     
+     return sessions
+   }
+   
+   llmDecideSessionBoundary(prev, curr) → {
+     // Send to LLM: URLs, titles, categories, brands, descriptions, languages
+     const result = await generateText({
+       model: openai('gpt-5-nano'),
+       prompt: `Compare these pages and decide if they're SAME or NEW session...`
+     })
+     
+     return { decision: 'NEW' | 'SAME', reason: string, confidence: number }
+   }
+   ```
+
+7. **Scoring & Ranking**:
+   ```typescript
+   calculatePatternScore(pattern) → {
+     // Frequency score (0-1)
+     const frequencyScore = min(pattern.frequency / 10, 1.0)
+     
+     // Recency score (exponential decay)
+     const daysAgo = (now - pattern.lastOccurrence) / (1 day)
+     const recencyScore = 1.0 / (1 + daysAgo * 0.1)
+     
+     // Impact score (estimated time saved/wasted)
+     const impactScore = calculateImpact(pattern)
+     
+     // Weighted composite
+     return frequencyScore * 0.3 + recencyScore * 0.3 + impactScore * 0.4
+   }
+   ```
+
+8. **Response Chain**:
+   ```
+   ProactiveInsightsManager returns insights → 
+   EventManager returns to IPC → 
+   Preload returns promise → 
+   InsightsContext updates state → 
+   Insights component displays cards
+   ```
+
+**Key Functions Involved**:
+- `Insights.analyzeBehavior()` - UI trigger
+- `InsightsContext.analyzeBehavior()` - State management
+- `EventManager.handleInsightsEvents()` - IPC routing
+- `ProactiveInsightsManager.analyzeUserBehavior()` - Core analysis
+- `ProactiveInsightsManager.segmentSessions()` - LLM session segmentation
+- `ProactiveInsightsManager.findSequentialPatterns()` - Workflow detection
+- `ProactiveInsightsManager.findTopicPatterns()` - Research analysis
+- `ProactiveInsightsManager.findAbandonedTasks()` - Abandonment detection
+- `ProactiveInsightsManager.findTemporalPatterns()` - Habit detection
+- `ProactiveInsightsManager.rankPatterns()` - Composite scoring
+- `ProactiveInsightsManager.generateInsights()` - Actionable insight creation
+
+### Executing Insight Actions
+
+**User Action**: Click action button on an insight (e.g., "Open Workflow")
+
+**Complete Flow**:
+
+1. **UI Interaction** (`Insights.tsx`):
+   ```typescript
+   <Button onClick={() => handleExecuteAction(insight.id)}>
+     Open Workflow
+   </Button>
+   
+   handleExecuteAction(insightId) → {
+     setExecutingInsights(prev => prev.add(insightId))
+     const result = await window.sidebarAPI.executeInsightAction(insightId)
+     if (result.success) {
+       setInsights(prev => prev.filter(i => i.id !== insightId)) // Remove executed
+     }
+     setExecutingInsights(prev => prev.delete(insightId))
+   }
+   ```
+
+2. **Preload Bridge** (`sidebar.ts`):
+   ```typescript
+   executeInsightAction: (insightId) => 
+     electronAPI.ipcRenderer.invoke("execute-insight-action", insightId)
+   ```
+
+3. **Main Process IPC** (`EventManager.ts`):
+   ```typescript
+   ipcMain.handle("execute-insight-action", async (_, insightId) => {
+     const currentUser = mainWindow.userAccountManager.getCurrentUser()
+     const insights = await mainWindow.proactiveInsightsManager.getInsights(currentUser.id)
+     const insight = insights.find(i => i.id === insightId)
+     
+     if (!insight) return { success: false, error: 'Insight not found' }
+     
+     // Execute based on action type
+     if (insight.actionType === 'open_urls') {
+       const urls = insight.actionParams.urls
+       for (const url of urls) {
+         await mainWindow.createTab(url)
+       }
+       return { success: true, message: `Opened ${urls.length} tabs` }
+     } else if (insight.actionType === 'resume_research') {
+       const lastUrl = insight.actionParams.lastUrl
+       if (lastUrl) {
+         await mainWindow.createTab(lastUrl)
+       }
+       return { success: true, message: 'Resumed research' }
+     }
+     
+     return { success: true, message: 'Action executed' }
+   })
+   ```
+
+4. **Tab Creation** (`Window.ts`):
+   ```typescript
+   createTab(url) → {
+     const tab = new Tab(tabId, url)
+     tabsMap.set(tabId, tab)
+     switchActiveTab(tabId)
+     return tab
+   }
+   ```
+
+**Key Functions Involved**:
+- `Insights.handleExecuteAction()` - UI trigger
+- `InsightsContext.executeAction()` - State management
+- `EventManager.handleInsightsEvents()` - IPC routing and action execution
+- `Window.createTab()` - Tab creation for URLs
+
+### Getting Cached Insights
+
+**User Action**: Navigate to Insights panel (loads cached insights)
+
+**Complete Flow**:
+
+1. **Component Mount** (`InsightsContext.tsx`):
+   ```typescript
+   useEffect(() => {
+     loadInsights()
+   }, [])
+   
+   loadInsights() → {
+     setIsLoading(true)
+     const cachedInsights = await window.sidebarAPI.getInsights()
+     setInsights(cachedInsights)
+     setIsLoading(false)
+   }
+   ```
+
+2. **Preload Bridge** (`sidebar.ts`):
+   ```typescript
+   getInsights: () => electronAPI.ipcRenderer.invoke("get-insights")
+   ```
+
+3. **Main Process IPC** (`EventManager.ts`):
+   ```typescript
+   ipcMain.handle("get-insights", async () => {
+     const currentUser = mainWindow.userAccountManager.getCurrentUser()
+     const insights = await mainWindow.proactiveInsightsManager.getInsights(currentUser.id)
+     return insights
+   })
+   ```
+
+4. **Cache Retrieval** (`ProactiveInsightsManager.ts`):
+   ```typescript
+   getInsights(userId) → {
+     if (insightsCache.has(userId)) {
+       return insightsCache.get(userId)
+     }
+     
+     // Generate new insights if cache empty
+     return this.analyzeUserBehavior(userId)
+   }
+   ```
+
+### Algorithm Highlights
+
+**Pure Semantic Session Segmentation**:
+- No arbitrary time limits (e.g., 30-minute gaps)
+- LLM analyzes full content context (categories, descriptions, brands, languages)
+- Captures semantic continuity (e.g., exploring Intercom features = one session)
+- Fast and cheap (~30ms, $0.00003 per decision using gpt-5-nano)
+
+**Multi-Strategy Pattern Detection**:
+- Runs 4 detection strategies in parallel for efficiency
+- Sequence similarity uses weighted scoring (category 40%, subcategory 30%, brand 30%)
+- Topic analysis groups by category and uses LLM to extract research goals
+- Completion analysis considers timeline, progress, and exit behavior
+- Temporal patterns use simple frequency-based detection (≥3 occurrences)
+
+**Composite Scoring**:
+```
+score = frequency × 0.3 + recency × 0.3 + impact × 0.4
+```
+- Balances how often, how recent, and how valuable each pattern is
+- Ensures most relevant insights surface to the top
+
+**Cost Efficiency**:
+- ~$0.014/day per active user (~$5/year)
+- Uses gpt-5-nano for fast decisions (session boundaries, workflow naming)
+- Uses gpt-5-mini for complex reasoning (topic analysis, completion detection)
+- Analysis runs on-demand or as scheduled batch job (not continuous)
+
+### Data Flow Summary
+
+```
+User Activities (7 days) + Content Analyses
+    ↓
+LLM Session Segmentation
+    ↓
+Parallel Pattern Detection
+    ├─ Sequential (Workflows)
+    ├─ Topic (Research)
+    ├─ Abandonment (Unfinished)
+    └─ Temporal (Habits)
+    ↓
+Scoring & Ranking
+    ↓
+Actionable Insights
+    ↓
+UI Display
+    ↓
+One-Click Action Execution
+```
+
+**Key Features**:
+- **Proactive**: Browser suggests actions without being asked
+- **Contextual**: Leverages rich content analysis (not just URLs)
+- **Actionable**: One-click execution of detected workflows
+- **Intelligent**: LLM-powered semantic understanding throughout
+- **Efficient**: Smart caching and parallel processing
+- **Privacy-Conscious**: Operates on local data, LLM calls use minimal anonymized context
+
+This AI-powered proactive insights system represents a fundamental shift from reactive to proactive browsing, where the browser learns from user behavior and actively helps enhance productivity.
 
 ---
 

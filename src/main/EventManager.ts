@@ -29,6 +29,9 @@ export class EventManager {
     // History events
     this.handleHistoryEvents();
 
+    // Proactive insights events
+    this.handleInsightsEvents();
+
     // Activity tracking events
     this.handleActivityTrackingEvents();
 
@@ -833,6 +836,93 @@ export class EventManager {
         const newTab = this.mainWindow.createTab(url);
         this.mainWindow.switchActiveTab(newTab.id);
         return { id: newTab.id, title: newTab.title, url: newTab.url, wasExisting: false };
+      }
+    });
+  }
+
+  private handleInsightsEvents(): void {
+    // Analyze user behavior and generate insights
+    ipcMain.handle("analyze-behavior", async () => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return [];
+      
+      try {
+        console.log('[EventManager] Analyzing behavior for user:', currentUser.name);
+        const insights = await this.mainWindow.proactiveInsightsManager.analyzeUserBehavior(currentUser.id);
+        console.log('[EventManager] Generated insights:', insights.length);
+        return insights;
+      } catch (error) {
+        console.error('[EventManager] Failed to analyze behavior:', error);
+        return [];
+      }
+    });
+
+    // Get cached insights
+    ipcMain.handle("get-insights", async () => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return [];
+      
+      try {
+        const insights = await this.mainWindow.proactiveInsightsManager.getInsights(currentUser.id);
+        return insights;
+      } catch (error) {
+        console.error('[EventManager] Failed to get insights:', error);
+        return [];
+      }
+    });
+
+    // Check for real-time triggers
+    ipcMain.handle("check-insight-triggers", async (_, currentUrl: string, recentActivitiesJson: string) => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return [];
+      
+      try {
+        const recentActivities = JSON.parse(recentActivitiesJson);
+        const triggered = await this.mainWindow.proactiveInsightsManager.checkRealtimeTriggers(
+          currentUser.id,
+          currentUrl,
+          recentActivities
+        );
+        return triggered;
+      } catch (error) {
+        console.error('[EventManager] Failed to check triggers:', error);
+        return [];
+      }
+    });
+
+    // Execute insight action
+    ipcMain.handle("execute-insight-action", async (_, insightId: string) => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return { success: false, error: 'No user logged in' };
+      
+      try {
+        const insights = await this.mainWindow.proactiveInsightsManager.getInsights(currentUser.id);
+        const insight = insights.find(i => i.id === insightId);
+        
+        if (!insight) {
+          return { success: false, error: 'Insight not found' };
+        }
+
+        // Execute action based on type
+        if (insight.actionType === 'open_urls') {
+          const urls = insight.actionParams.urls as string[];
+          for (const url of urls) {
+            this.mainWindow.createTab(url);
+          }
+          return { success: true, message: `Opened ${urls.length} tabs` };
+        } else if (insight.actionType === 'resume_research') {
+          const lastUrl = insight.actionParams.lastUrl as string | undefined;
+          if (lastUrl) {
+            this.mainWindow.createTab(lastUrl);
+            this.mainWindow.switchActiveTab(this.mainWindow.activeTab!.id);
+          }
+          return { success: true, message: 'Resumed research' };
+        }
+
+        return { success: true, message: 'Action executed' };
+      } catch (error) {
+        console.error('[EventManager] Failed to execute insight action:', error);
+        return { success: false, error: 'Failed to execute action' };
       }
     });
   }

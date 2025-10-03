@@ -123,7 +123,6 @@ interface LLMDebugLog {
   // Request
   prompt: string
   screenshotPath: string          // Reference to screenshot, not base64
-  temperature?: number
   maxTokens?: number
   
   // Response

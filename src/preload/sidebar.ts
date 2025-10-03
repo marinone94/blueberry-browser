@@ -102,6 +102,14 @@ const sidebarAPI = {
   getActivityDataSize: (userId: string) =>
     electronAPI.ipcRenderer.invoke("get-activity-data-size", userId),
   
+  // Proactive Insights functionality
+  analyzeBehavior: () => electronAPI.ipcRenderer.invoke("analyze-behavior"),
+  getInsights: () => electronAPI.ipcRenderer.invoke("get-insights"),
+  checkInsightTriggers: (currentUrl: string, recentActivities: any[]) => 
+    electronAPI.ipcRenderer.invoke("check-insight-triggers", currentUrl, JSON.stringify(recentActivities)),
+  executeInsightAction: (insightId: string) => 
+    electronAPI.ipcRenderer.invoke("execute-insight-action", insightId),
+  
   // Listen for messages from topbar
   onTopbarMessage: (callback: (type: string, data: any) => void) => {
     electronAPI.ipcRenderer.on("topbar-message", (_, type, data) => callback(type, data));

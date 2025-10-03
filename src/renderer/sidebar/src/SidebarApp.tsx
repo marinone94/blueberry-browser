@@ -2,10 +2,12 @@ import React, { useEffect, useState } from 'react'
 import { ChatProvider } from './contexts/ChatContext'
 import { HistoryProvider } from './contexts/HistoryContext'
 import { ChatHistoryProvider } from './contexts/ChatHistoryContext'
+import { InsightsProvider } from './contexts/InsightsContext'
 import { UserAccountProvider, useUserAccount } from './contexts/UserAccountContext'
 import { Chat } from './components/Chat'
 import { History } from './components/History'
 import { ChatHistory } from './components/ChatHistory'
+import { Insights } from './components/Insights'
 import { AccountCreationModal } from './components/AccountCreationModal'
 import { UserProfileModal } from './components/UserProfileModal'
 import { AccountSwitcherModal } from './components/AccountSwitcherModal'
@@ -13,7 +15,7 @@ import { useDarkMode } from '@common/hooks/useDarkMode'
 
 const SidebarContent: React.FC = () => {
     const { isDarkMode } = useDarkMode()
-    const [currentView, setCurrentView] = useState<'chat' | 'chat-history' | 'browsing-history'>('chat')
+    const [currentView, setCurrentView] = useState<'chat' | 'chat-history' | 'browsing-history' | 'insights'>('chat')
     const { 
         showAccountCreation, 
         setShowAccountCreation, 
@@ -42,12 +44,17 @@ const SidebarContent: React.FC = () => {
         <>
             <div className="h-screen flex flex-col bg-background border-l border-border">
                 {currentView === 'chat' ? (
-                    <Chat onShowHistory={(type) => setCurrentView(type === 'chats' ? 'chat-history' : 'browsing-history')} />
+                    <Chat 
+                        onShowHistory={(type) => setCurrentView(type === 'chats' ? 'chat-history' : 'browsing-history')}
+                        onShowInsights={() => setCurrentView('insights')}
+                    />
                 ) : currentView === 'chat-history' ? (
                     <ChatHistory 
                         onClose={() => setCurrentView('chat')}
                         onSelectSession={() => setCurrentView('chat')}
                     />
+                ) : currentView === 'insights' ? (
+                    <Insights onClose={() => setCurrentView('chat')} />
                 ) : (
                     <History onClose={() => setCurrentView('chat')} />
                 )}
@@ -128,9 +135,11 @@ export const SidebarApp: React.FC = () => {
         <UserAccountProvider>
             <HistoryProvider>
                 <ChatHistoryProvider>
-                    <ChatProvider>
-                        <SidebarContent />
-                    </ChatProvider>
+                    <InsightsProvider>
+                        <ChatProvider>
+                            <SidebarContent />
+                        </ChatProvider>
+                    </InsightsProvider>
                 </ChatHistoryProvider>
             </HistoryProvider>
         </UserAccountProvider>
