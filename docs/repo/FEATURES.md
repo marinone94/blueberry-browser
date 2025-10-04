@@ -2174,7 +2174,7 @@ See [Cookie Dialog Detection Documentation](./COOKIE_DIALOG_DETECTION.md) for co
    ```typescript
    // Call GPT-4o-mini with multimodal input
    result = await streamText({
-     model: 'gpt-4o-mini',
+     model: 'gpt-5-nano',
      messages: [{
        role: 'user',
        content: [
@@ -2236,7 +2236,7 @@ See [Cookie Dialog Detection Documentation](./COOKIE_DIALOG_DETECTION.md) for co
      screenshotDescription, screenshotPath, screenshotHash, screenshotMetadata,
      category, subcategory, brand,
      languages, primaryLanguage,
-     analysisStatus: 'completed', modelUsed: 'gpt-4o-mini',
+     analysisStatus: 'completed', modelUsed: 'gpt-5-nano',
      analysisTime, llmInteractionId
    }
    
@@ -2252,7 +2252,7 @@ See [Cookie Dialog Detection Documentation](./COOKIE_DIALOG_DETECTION.md) for co
     // Save complete LLM interaction for debugging
     await userDataManager.saveLLMDebugLog(userId, {
       interactionId, timestamp, analysisId, activityId, userId,
-      model: 'gpt-4o-mini',
+      model: 'gpt-5-nano',
       prompt,
       screenshotPath,  // Reference only, not full base64
       rawResponse,

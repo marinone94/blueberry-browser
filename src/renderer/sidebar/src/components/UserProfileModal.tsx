@@ -258,6 +258,9 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               {user.isGuest ? 'Guest User Profile' : 'User Profile'}
             </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              {user.id}
+            </p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
               Account created {getAccountAge(user.createdAt)}
             </p>
           </div>

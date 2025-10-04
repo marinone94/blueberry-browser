@@ -134,10 +134,10 @@ score = frequency × 0.3 + recency × 0.3 + impact × 0.4
 
 | Operation | Model | Tokens | Count | Daily Cost |
 |-----------|-------|--------|-------|------------|
-| Session boundary | gpt-4o-mini | 200 | 50 | $0.0015 |
-| Pattern themes | gpt-4o-mini | 300 | 3 | $0.00015 |
-| Topic analysis | gpt-4o-mini | 500 | 2 | $0.0026 |
-| Completion analysis | gpt-4o-mini | 500 | 5 | $0.0065 |
+| Session boundary | gpt-5-nano | 200 | 50 | $0.0015 |
+| Pattern themes | gpt-5-nano | 300 | 3 | $0.00015 |
+| Topic analysis | gpt-5-nano | 500 | 2 | $0.0026 |
+| Completion analysis | gpt-5-nano | 500 | 5 | $0.0065 |
 | **TOTAL** | | | | **~$0.014/day** |
 
 **Result**: **$5/year per active user** - entirely feasible.

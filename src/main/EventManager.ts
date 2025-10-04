@@ -906,17 +906,23 @@ export class EventManager {
         // Execute action based on type
         if (insight.actionType === 'open_urls') {
           const urls = insight.actionParams.urls as string[];
+          let lastTab;
           for (const url of urls) {
-            this.mainWindow.createTab(url);
+            lastTab = this.mainWindow.createTab(url);
+          }
+          // Switch to the last opened tab
+          if (lastTab) {
+            this.mainWindow.switchActiveTab(lastTab.id);
           }
           return { success: true, message: `Opened ${urls.length} tabs` };
         } else if (insight.actionType === 'resume_research') {
           const lastUrl = insight.actionParams.lastUrl as string | undefined;
           if (lastUrl) {
-            this.mainWindow.createTab(lastUrl);
-            this.mainWindow.switchActiveTab(this.mainWindow.activeTab!.id);
+            const newTab = this.mainWindow.createTab(lastUrl);
+            this.mainWindow.switchActiveTab(newTab.id);
+            return { success: true, message: 'Resumed research' };
           }
-          return { success: true, message: 'Resumed research' };
+          return { success: false, error: 'No URL to resume' };
         }
 
         return { success: true, message: 'Action executed' };

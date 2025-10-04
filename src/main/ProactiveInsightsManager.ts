@@ -982,6 +982,10 @@ Output JSON:
           createdAt: new Date()
         };
       } else if (pattern.type === 'abandoned') {
+        // Get the last URL from the session - prefer activity URL, fallback to analysis URL
+        const lastActivity = pattern.session.activities[pattern.session.activities.length - 1];
+        const lastUrl = lastActivity?.activity?.data?.url || lastActivity?.analysis?.url;
+        
         return {
           id: `insight-${pattern.patternId}`,
           userId,
@@ -991,7 +995,7 @@ Output JSON:
           actionType: 'resume_research',
           actionParams: {
             suggestions: pattern.suggestions,
-            lastUrl: pattern.session.activities[pattern.session.activities.length - 1].analysis?.url
+            lastUrl
           },
           patterns: [pattern],
           relevanceScore: pattern.score,
