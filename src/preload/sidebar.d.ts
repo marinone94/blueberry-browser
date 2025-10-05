@@ -90,8 +90,22 @@ interface ProactiveInsight {
   actionParams: any;
   patterns: any[];
   relevanceScore: number;
-  createdAt: Date;
-  triggeredAt?: Date;
+  createdAt: string;  // ISO date string (serialized by IPC)
+  triggeredAt?: string;  // ISO date string (serialized by IPC)
+  actedUpon?: boolean;
+  actedUponAt?: string;  // ISO date string (serialized by IPC)
+}
+
+interface Reminder {
+  id: string;
+  insightId: string;
+  userId: string;
+  title: string;
+  description: string;
+  actionParams: any;
+  createdAt: string;
+  completed: boolean;
+  completedAt?: string;
 }
 
 interface SidebarAPI {
@@ -156,6 +170,14 @@ interface SidebarAPI {
   getInsights: () => Promise<ProactiveInsight[]>;
   checkInsightTriggers: (currentUrl: string, recentActivities: any[]) => Promise<ProactiveInsight[]>;
   executeInsightAction: (insightId: string) => Promise<{success: boolean, message?: string, error?: string}>;
+  
+  // Reminders functionality
+  getReminders: () => Promise<Reminder[]>;
+  completeReminder: (reminderId: string) => Promise<{success: boolean, error?: string}>;
+  deleteReminder: (reminderId: string) => Promise<{success: boolean, error?: string}>;
+  executeReminderAction: (reminderId: string) => Promise<{success: boolean, message?: string, error?: string}>;
+  onReminderSet: (callback: (data: any) => void) => void;
+  removeReminderSetListener: () => void;
   
   // Listen for messages from topbar
   onTopbarMessage: (callback: (type: string, data: any) => void) => void;

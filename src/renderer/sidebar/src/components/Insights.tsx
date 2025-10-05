@@ -5,13 +5,14 @@ import {
   Brain, 
   X, 
   Sparkles, 
-  RefreshCw, 
+  History, 
   Clock, 
   BookOpen, 
   Zap, 
   TrendingUp,
   ArrowRight,
-  Loader2
+  Loader2,
+  CheckCircle
 } from 'lucide-react'
 
 interface InsightsProps {
@@ -64,8 +65,13 @@ const getActionLabel = (actionType: string) => {
 }
 
 export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
-  const { insights, isLoading, isAnalyzing, error, analyzeBehavior, refreshInsights, executeAction } = useInsights()
+  const { insights, isLoading, isAnalyzing, error, analyzeBehavior, executeAction } = useInsights()
   const [executingInsights, setExecutingInsights] = React.useState<Set<string>>(new Set())
+  const [showHistory, setShowHistory] = React.useState(false)
+
+  // Separate active and acted upon insights
+  const activeInsights = insights.filter(i => !i.actedUpon)
+  const actedUponInsights = insights.filter(i => i.actedUpon)
 
   const handleExecuteAction = async (insightId: string) => {
     setExecutingInsights(prev => new Set(prev).add(insightId))
@@ -90,9 +96,14 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
     <div className="h-full flex flex-col bg-background">
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-border bg-background sticky top-0 z-10">
-        <div className="flex items-center gap-2">
-          <Brain className="w-5 h-5 text-primary" />
-          <h2 className="text-lg font-semibold text-foreground">Proactive Insights</h2>
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            <Brain className="w-5 h-5 text-primary" />
+            <h2 className="text-lg font-semibold text-foreground">Proactive Insights</h2>
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            {activeInsights.length} active{actedUponInsights.length > 0 && `, ${actedUponInsights.length} in history`}
+          </p>
         </div>
         <Button
           variant="ghost"
@@ -125,14 +136,13 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
           )}
         </Button>
         <Button
-          onClick={refreshInsights}
-          disabled={isLoading}
+          onClick={() => setShowHistory(!showHistory)}
           variant="outline"
           size="sm"
           className="flex items-center gap-2"
         >
-          <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-          <span>Refresh</span>
+          <History className="w-4 h-4" />
+          <span>{showHistory ? 'Hide' : 'Show'} History</span>
         </Button>
       </div>
 
@@ -149,7 +159,7 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
             <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
             <p className="text-sm text-muted-foreground">Loading insights...</p>
           </div>
-        ) : insights.length === 0 ? (
+        ) : activeInsights.length === 0 && actedUponInsights.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 gap-4 text-center px-4">
             <Brain className="w-16 h-16 text-muted-foreground/40" />
             <div>
@@ -177,62 +187,138 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
             </div>
           </div>
         ) : (
-          <div className="space-y-4">
-            {insights.map((insight) => (
-              <div
-                key={insight.id}
-                className="p-4 rounded-lg border border-border bg-card hover:bg-card/80 transition-colors"
-              >
-                {/* Insight Header */}
-                <div className="flex items-start gap-3 mb-3">
-                  <div className="mt-0.5">
-                    {getInsightIcon(insight.type)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                        {getInsightTypeLabel(insight.type)}
-                      </span>
+          <>
+            {/* Active Insights */}
+            {activeInsights.length > 0 && (
+              <div className="space-y-4 mb-6">
+                {activeInsights.map((insight) => (
+                  <div
+                    key={insight.id}
+                    className="p-4 rounded-lg border border-border bg-card hover:bg-card/80 transition-colors"
+                  >
+                    {/* Insight Header */}
+                    <div className="flex items-start gap-3 mb-3">
+                      <div className="mt-0.5">
+                        {getInsightIcon(insight.type)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                            {getInsightTypeLabel(insight.type)}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            Score: {Math.round(insight.relevanceScore * 100)}%
+                          </span>
+                        </div>
+                        <h3 className="text-sm font-semibold text-foreground mb-1">
+                          {insight.title}
+                        </h3>
+                        <p className="text-sm text-muted-foreground leading-relaxed">
+                          {insight.description}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Action Button */}
+                    <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border/50">
+                      <Button
+                        onClick={() => handleExecuteAction(insight.id)}
+                        disabled={executingInsights.has(insight.id)}
+                        size="sm"
+                        className="flex items-center gap-2"
+                      >
+                        {executingInsights.has(insight.id) ? (
+                          <>
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            <span>Executing...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>{getActionLabel(insight.actionType)}</span>
+                            <ArrowRight className="w-3 h-3" />
+                          </>
+                        )}
+                      </Button>
                       <span className="text-xs text-muted-foreground">
-                        Score: {Math.round(insight.relevanceScore * 100)}%
+                        {new Date(insight.createdAt).toLocaleDateString()}
                       </span>
                     </div>
-                    <h3 className="text-sm font-semibold text-foreground mb-1">
-                      {insight.title}
-                    </h3>
-                    <p className="text-sm text-muted-foreground leading-relaxed">
-                      {insight.description}
-                    </p>
                   </div>
-                </div>
-
-                {/* Action Button */}
-                <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border/50">
-                  <Button
-                    onClick={() => handleExecuteAction(insight.id)}
-                    disabled={executingInsights.has(insight.id)}
-                    size="sm"
-                    className="flex items-center gap-2"
-                  >
-                    {executingInsights.has(insight.id) ? (
-                      <>
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        <span>Executing...</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>{getActionLabel(insight.actionType)}</span>
-                        <ArrowRight className="w-3 h-3" />
-                      </>
-                    )}
-                  </Button>
-                  <span className="text-xs text-muted-foreground">
-                    {new Date(insight.createdAt).toLocaleDateString()}
-                  </span>
-                </div>
+                ))}
               </div>
-            ))}
-          </div>
+            )}
+
+            {/* Acted Upon Insights (History) */}
+            {showHistory && actedUponInsights.length > 0 && (
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                  History ({actedUponInsights.length})
+                </h3>
+                {actedUponInsights.map((insight) => (
+                  <div
+                    key={insight.id}
+                    className="p-4 rounded-lg border border-border/50 bg-card/30 opacity-60"
+                  >
+                    {/* Insight Header */}
+                    <div className="flex items-start gap-3 mb-3">
+                      <div className="mt-0.5">
+                        {getInsightIcon(insight.type)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                            {getInsightTypeLabel(insight.type)}
+                          </span>
+                          <CheckCircle className="w-3 h-3 text-green-500" />
+                          <span className="text-xs text-muted-foreground">
+                            Score: {Math.round(insight.relevanceScore * 100)}%
+                          </span>
+                        </div>
+                        <h3 className="text-sm font-semibold text-foreground mb-1">
+                          {insight.title}
+                        </h3>
+                        <p className="text-sm text-muted-foreground leading-relaxed">
+                          {insight.description}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Status Info */}
+                    <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border/50">
+                      <span className="text-xs text-muted-foreground">
+                        Acted upon {insight.actedUponAt ? new Date(insight.actedUponAt).toLocaleDateString() : 'recently'}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Empty state for active insights */}
+            {activeInsights.length === 0 && actedUponInsights.length > 0 && (
+              <div className="text-center py-8 mb-6">
+                <p className="text-sm text-muted-foreground">No active insights. All insights have been acted upon.</p>
+                <Button
+                  onClick={analyzeBehavior}
+                  disabled={isAnalyzing}
+                  size="sm"
+                  className="mt-4"
+                >
+                  {isAnalyzing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                      <span>Analyzing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4 mr-2" />
+                      <span>Generate New Insights</span>
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

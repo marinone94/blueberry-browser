@@ -13,7 +13,7 @@ Intelligent content analysis system that extracts, analyzes, and categorizes web
 - Manages analysis queue and worker
 - Handles deduplication logic (compare HTML/screenshot)
 - Continues processing even if tab/window closes or user switches accounts
-- Uses cheaper model (GPT-4o-mini or Claude Haiku)
+- Uses cheaper model (GPT-5-nano or Claude Haiku)
 
 #### 2. CategoryManager (`src/main/CategoryManager.ts`)
 - Maintains global category taxonomy (max 1000 high-level categories)

@@ -110,6 +110,23 @@ const sidebarAPI = {
   executeInsightAction: (insightId: string) => 
     electronAPI.ipcRenderer.invoke("execute-insight-action", insightId),
   
+  // Reminders functionality
+  getReminders: () => electronAPI.ipcRenderer.invoke("get-reminders"),
+  completeReminder: (reminderId: string) => 
+    electronAPI.ipcRenderer.invoke("complete-reminder", reminderId),
+  deleteReminder: (reminderId: string) => 
+    electronAPI.ipcRenderer.invoke("delete-reminder", reminderId),
+  executeReminderAction: (reminderId: string) => 
+    electronAPI.ipcRenderer.invoke("execute-reminder-action", reminderId),
+  
+  // Listen for reminder events
+  onReminderSet: (callback: (data: any) => void) => {
+    electronAPI.ipcRenderer.on("reminder-set", (_, data) => callback(data));
+  },
+  removeReminderSetListener: () => {
+    electronAPI.ipcRenderer.removeAllListeners("reminder-set");
+  },
+  
   // Listen for messages from topbar
   onTopbarMessage: (callback: (type: string, data: any) => void) => {
     electronAPI.ipcRenderer.on("topbar-message", (_, type, data) => callback(type, data));

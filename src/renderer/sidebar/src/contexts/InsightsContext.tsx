@@ -10,8 +10,10 @@ interface ProactiveInsight {
   actionParams: any
   patterns: any[]
   relevanceScore: number
-  createdAt: Date
-  triggeredAt?: Date
+  createdAt: string  // ISO date string (serialized by IPC)
+  triggeredAt?: string  // ISO date string (serialized by IPC)
+  actedUpon?: boolean
+  actedUponAt?: string  // ISO date string (serialized by IPC)
 }
 
 interface InsightsContextType {

@@ -173,7 +173,7 @@ After generating data:
 ## Features
 
 ### LLM-Powered Content Generation
-- **Realistic URLs**: Uses GPT-4o-mini to generate authentic-looking URLs for various categories
+- **Realistic URLs**: Uses GPT-5-nano to generate authentic-looking URLs for various categories
 - **Page Content**: Generates realistic page descriptions, full text content, and metadata
 - **Browsing Journeys**: Creates coherent multi-step user journeys with natural progression
 - **Search Queries**: Generates human-like search queries with natural language
@@ -225,7 +225,7 @@ scripts/synthetic-data/
 
 - **OpenAI API Key**: Required for LLM-powered content generation
   - Set in `.env` file: `OPENAI_API_KEY=your-key-here`
-  - Uses GPT-4o-mini model (cost-effective)
+  - Uses GPT-5-nano model (cost-effective)
   - Falls back to simple generation if API unavailable
 
 ## Performance
@@ -233,7 +233,7 @@ scripts/synthetic-data/
 - **Generation Speed**: ~10-30 seconds per day of data (depending on LLM calls)
 - **LLM Caching**: Intelligent caching reduces duplicate API calls
 - **Content Analysis**: Optional, configurable percentage (50-80% recommended)
-- **Cost**: ~$0.01-0.05 per 1000 activities with GPT-4o-mini
+- **Cost**: ~$0.01-0.05 per 1000 activities with GPT-5-nano
 
 ## Troubleshooting
 

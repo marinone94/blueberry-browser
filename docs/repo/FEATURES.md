@@ -2172,7 +2172,7 @@ See [Cookie Dialog Detection Documentation](./COOKIE_DIALOG_DETECTION.md) for co
 
 6. **LLM Analysis** (`ContentAnalyzer.ts`):
    ```typescript
-   // Call GPT-4o-mini with multimodal input
+   // Call GPT-5-nano with multimodal input
    result = await streamText({
      model: 'gpt-5-nano',
      messages: [{
@@ -2440,7 +2440,7 @@ async getScreenshotWithMetadata() → {
 - Debug logs preserved for troubleshooting
 
 **Performance**:
-- Uses lightweight GPT-4o-mini model
+- Uses lightweight GPT-5-nano model
 - Single worker processes queue sequentially
 - Hash-based deduplication prevents redundant API calls
 - Text extraction with timeout protection

@@ -1262,4 +1262,111 @@ export class UserDataManager {
       // Don't throw - debug logs should not break the main flow
     }
   }
+
+  // ============================================================================
+  // REMINDERS MANAGEMENT
+  // ============================================================================
+
+  /**
+   * Get the path to the reminders file for a user
+   */
+  private getRemindersFilePath(userId: string): string {
+    return join(this.usersDir, 'user-data', userId, 'reminders.json');
+  }
+
+  /**
+   * Save a reminder for a user
+   */
+  async saveReminder(userId: string, reminder: any): Promise<void> {
+    const filePath = this.getRemindersFilePath(userId);
+    
+    try {
+      // Load existing reminders
+      let reminders: any[] = [];
+      try {
+        const fileContent = await fs.readFile(filePath, 'utf-8');
+        reminders = JSON.parse(fileContent);
+      } catch {
+        // File doesn't exist yet, start with empty array
+      }
+
+      // Add new reminder
+      reminders.push(reminder);
+
+      // Ensure directory exists
+      await this.ensureDirectoryExists(dirname(filePath));
+
+      // Save back to file
+      await fs.writeFile(filePath, JSON.stringify(reminders, null, 2));
+
+      console.log(`UserDataManager: Saved reminder ${reminder.id} for user ${userId}`);
+    } catch (error) {
+      console.error(`Failed to save reminder for user ${userId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all reminders for a user
+   */
+  async getReminders(userId: string): Promise<any[]> {
+    const filePath = this.getRemindersFilePath(userId);
+    
+    try {
+      const fileContent = await fs.readFile(filePath, 'utf-8');
+      return JSON.parse(fileContent);
+    } catch {
+      // File doesn't exist yet
+      return [];
+    }
+  }
+
+  /**
+   * Update a reminder
+   */
+  async updateReminder(userId: string, reminderId: string, updates: any): Promise<void> {
+    const filePath = this.getRemindersFilePath(userId);
+    
+    try {
+      const reminders = await this.getReminders(userId);
+      const index = reminders.findIndex(r => r.id === reminderId);
+      
+      if (index !== -1) {
+        reminders[index] = { ...reminders[index], ...updates };
+        await fs.writeFile(filePath, JSON.stringify(reminders, null, 2));
+        console.log(`UserDataManager: Updated reminder ${reminderId} for user ${userId}`);
+      }
+    } catch (error) {
+      console.error(`Failed to update reminder ${reminderId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete a reminder
+   */
+  async deleteReminder(userId: string, reminderId: string): Promise<void> {
+    const filePath = this.getRemindersFilePath(userId);
+    
+    try {
+      const reminders = await this.getReminders(userId);
+      const filtered = reminders.filter(r => r.id !== reminderId);
+      
+      await fs.writeFile(filePath, JSON.stringify(filtered, null, 2));
+      console.log(`UserDataManager: Deleted reminder ${reminderId} for user ${userId}`);
+    } catch (error) {
+      console.error(`Failed to delete reminder ${reminderId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Mark a reminder as completed
+   */
+  async completeReminder(userId: string, reminderId: string): Promise<void> {
+    await this.updateReminder(userId, reminderId, { 
+      completed: true, 
+      completedAt: new Date().toISOString() 
+    });
+  }
 }

@@ -8,14 +8,23 @@ import { Chat } from './components/Chat'
 import { History } from './components/History'
 import { ChatHistory } from './components/ChatHistory'
 import { Insights } from './components/Insights'
+import { Reminders } from './components/Reminders'
+import { Toast } from './components/Toast'
 import { AccountCreationModal } from './components/AccountCreationModal'
 import { UserProfileModal } from './components/UserProfileModal'
 import { AccountSwitcherModal } from './components/AccountSwitcherModal'
 import { useDarkMode } from '@common/hooks/useDarkMode'
 
+interface ToastData {
+  id: string
+  message: string
+  type: 'success' | 'error' | 'info'
+}
+
 const SidebarContent: React.FC = () => {
     const { isDarkMode } = useDarkMode()
-    const [currentView, setCurrentView] = useState<'chat' | 'chat-history' | 'browsing-history' | 'insights'>('chat')
+    const [currentView, setCurrentView] = useState<'chat' | 'chat-history' | 'browsing-history' | 'insights' | 'reminders'>('chat')
+    const [toasts, setToasts] = useState<ToastData[]>([])
     const { 
         showAccountCreation, 
         setShowAccountCreation, 
@@ -40,6 +49,30 @@ const SidebarContent: React.FC = () => {
         }
     }, [isDarkMode])
 
+    // Listen for reminder-set events
+    useEffect(() => {
+        const handleReminderSet = (data: any) => {
+            console.log('Reminder set:', data)
+            addToast(data.message || 'Reminder saved successfully', 'success')
+        }
+
+        window.sidebarAPI.onReminderSet(handleReminderSet)
+
+        return () => {
+            window.sidebarAPI.removeReminderSetListener()
+        }
+    }, [])
+
+    // Toast management
+    const addToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+        const id = `toast-${Date.now()}`
+        setToasts(prev => [...prev, { id, message, type }])
+    }
+
+    const removeToast = (id: string) => {
+        setToasts(prev => prev.filter(toast => toast.id !== id))
+    }
+
     return (
         <>
             <div className="h-screen flex flex-col bg-background border-l border-border">
@@ -47,6 +80,7 @@ const SidebarContent: React.FC = () => {
                     <Chat 
                         onShowHistory={(type) => setCurrentView(type === 'chats' ? 'chat-history' : 'browsing-history')}
                         onShowInsights={() => setCurrentView('insights')}
+                        onShowReminders={() => setCurrentView('reminders')}
                     />
                 ) : currentView === 'chat-history' ? (
                     <ChatHistory 
@@ -55,10 +89,22 @@ const SidebarContent: React.FC = () => {
                     />
                 ) : currentView === 'insights' ? (
                     <Insights onClose={() => setCurrentView('chat')} />
+                ) : currentView === 'reminders' ? (
+                    <Reminders onClose={() => setCurrentView('chat')} />
                 ) : (
                     <History onClose={() => setCurrentView('chat')} />
                 )}
             </div>
+
+            {/* Toast notifications */}
+            {toasts.map(toast => (
+                <Toast
+                    key={toast.id}
+                    message={toast.message}
+                    type={toast.type}
+                    onClose={() => removeToast(toast.id)}
+                />
+            ))}
 
             {/* Account Creation Modal */}
             <AccountCreationModal

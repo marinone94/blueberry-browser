@@ -171,7 +171,7 @@ blueberry-browser/
 
 ### AI Integration
 - **AI SDK**: Universal LLM integration library
-- **OpenAI GPT-4o-mini**: Primary AI model (configurable)
+- **OpenAI GPT-5-nano**: Primary AI model (configurable)
 - **Anthropic Claude-3.5-Sonnet**: Alternative AI provider
 - **Streaming Responses**: Real-time AI chat with proper state management
 

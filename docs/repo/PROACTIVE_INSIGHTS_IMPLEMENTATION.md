@@ -18,6 +18,7 @@
 2. **Multi-Strategy Pattern Detection** - Finds 4 types of patterns simultaneously
 3. **One-Click Actions** - Execute workflows or resume tasks instantly
 4. **Fully Leverages Existing Infrastructure** - Uses content analysis, vector search, and activity tracking already built
+5. **Foundation for Agentic AI workflows** - Uses existing infrastructure to build agentic workflows
 
 ## Algorithm Design
 
@@ -229,15 +230,15 @@ The feature leverages existing data:
 
 **Solution**: LLM understands "exploring Intercom features" = one session.
 
-### Why Not Pure ML (LSTM/Transformers)?
+### Why Not Pure ML?
 
-**Problem**: Insufficient data per user (cold start), hard to interpret, expensive to train.
+**Problem**: Insufficient data per user (cold start), hard to interpret.
 
 **Solution**: Hybrid approach - heuristics for fast pattern detection, LLM for intelligent interpretation.
 
-### Why GPT-4o-mini?
+### Why GPT-5-nano?
 
-**GPT-4o-mini**: Fast, cheap, perfect for all our tasks (session boundaries, theme naming, completion analysis). Cost-effective at $0.15/1M input tokens, $0.60/1M output tokens.
+**GPT-5-nano**: Fast, cheap, perfect for all our tasks (session boundaries, theme naming, completion analysis). Cost-effective at $0.05/1M input tokens, $0.40/1M output tokens.
 
 ### Why Composite Scoring?
 

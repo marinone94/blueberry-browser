@@ -903,6 +903,11 @@ export class EventManager {
           return { success: false, error: 'Insight not found' };
         }
 
+        // Check if already acted upon (except for reminders)
+        if (insight.actedUpon && insight.actionType !== 'remind') {
+          return { success: false, error: 'This insight has already been acted upon' };
+        }
+
         // Execute action based on type
         if (insight.actionType === 'open_urls') {
           const urls = insight.actionParams.urls as string[];
@@ -914,21 +919,158 @@ export class EventManager {
           if (lastTab) {
             this.mainWindow.switchActiveTab(lastTab.id);
           }
+          
+          // Mark as acted upon
+          await this.mainWindow.proactiveInsightsManager.markInsightAsActedUpon(currentUser.id, insightId);
+          
           return { success: true, message: `Opened ${urls.length} tabs` };
         } else if (insight.actionType === 'resume_research') {
           const lastUrl = insight.actionParams.lastUrl as string | undefined;
+          console.log(`[EventManager] Resuming research with URL: ${lastUrl}`);
+          
           if (lastUrl) {
-            const newTab = this.mainWindow.createTab(lastUrl);
-            this.mainWindow.switchActiveTab(newTab.id);
-            return { success: true, message: 'Resumed research' };
+            try {
+              const newTab = this.mainWindow.createTab(lastUrl);
+              this.mainWindow.switchActiveTab(newTab.id);
+              
+              // Mark as acted upon
+              await this.mainWindow.proactiveInsightsManager.markInsightAsActedUpon(currentUser.id, insightId);
+              
+              return { success: true, message: 'Resumed where you left off' };
+            } catch (error) {
+              console.error('[EventManager] Failed to create tab:', error);
+              return { success: false, error: 'Failed to create tab' };
+            }
           }
-          return { success: false, error: 'No URL to resume' };
+          return { success: false, error: 'No URL available to resume' };
+        } else if (insight.actionType === 'remind') {
+          // Check if reminder with same domain, day, and hour already exists
+          const existingReminders = await this.mainWindow.userDataManager.getReminders(currentUser.id);
+          
+          // Extract key properties from the new reminder
+          const newDomain = insight.actionParams?.domain;
+          const newDayOfWeek = insight.actionParams?.dayOfWeek;
+          const newHour = insight.actionParams?.hour;
+          
+          // Check for duplicate based on content (domain, day, hour)
+          // Only consider it a duplicate if all three match
+          const existingReminder = existingReminders.find(r => {
+            if (r.completed) return false; // Ignore completed reminders
+            
+            const existingDomain = r.actionParams?.domain;
+            const existingDayOfWeek = r.actionParams?.dayOfWeek;
+            const existingHour = r.actionParams?.hour;
+            
+            // All three must match for it to be a duplicate
+            return existingDomain === newDomain && 
+                   existingDayOfWeek === newDayOfWeek && 
+                   existingHour === newHour;
+          });
+          
+          if (existingReminder) {
+            return { success: false, error: 'A similar reminder already exists for this time and website' };
+          }
+          
+          // Store reminder
+          const reminder = {
+            id: `reminder-${Date.now()}`,
+            insightId: insight.id,
+            userId: currentUser.id,
+            title: insight.title,
+            description: insight.description,
+            actionParams: insight.actionParams,
+            createdAt: new Date().toISOString(),
+            completed: false
+          };
+          
+          await this.mainWindow.userDataManager.saveReminder(currentUser.id, reminder);
+          
+          // Send success message to UI
+          this.mainWindow.sidebar.view.webContents.send('reminder-set', {
+            message: 'Reminder saved successfully',
+            reminder
+          });
+          
+          // Note: We don't mark reminders as acted upon, as they can be set multiple times
+          
+          return { success: true, message: 'Reminder set successfully' };
         }
 
         return { success: true, message: 'Action executed' };
       } catch (error) {
         console.error('[EventManager] Failed to execute insight action:', error);
         return { success: false, error: 'Failed to execute action' };
+      }
+    });
+
+    // Get reminders for current user
+    ipcMain.handle("get-reminders", async () => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return [];
+      
+      try {
+        return await this.mainWindow.userDataManager.getReminders(currentUser.id);
+      } catch (error) {
+        console.error('[EventManager] Failed to get reminders:', error);
+        return [];
+      }
+    });
+
+    // Complete a reminder
+    ipcMain.handle("complete-reminder", async (_, reminderId: string) => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return { success: false, error: 'No user logged in' };
+      
+      try {
+        await this.mainWindow.userDataManager.completeReminder(currentUser.id, reminderId);
+        return { success: true };
+      } catch (error) {
+        console.error('[EventManager] Failed to complete reminder:', error);
+        return { success: false, error: 'Failed to complete reminder' };
+      }
+    });
+
+    // Delete a reminder
+    ipcMain.handle("delete-reminder", async (_, reminderId: string) => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return { success: false, error: 'No user logged in' };
+      
+      try {
+        await this.mainWindow.userDataManager.deleteReminder(currentUser.id, reminderId);
+        return { success: true };
+      } catch (error) {
+        console.error('[EventManager] Failed to delete reminder:', error);
+        return { success: false, error: 'Failed to delete reminder' };
+      }
+    });
+
+    // Execute reminder action (open URL, etc)
+    ipcMain.handle("execute-reminder-action", async (_, reminderId: string) => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return { success: false, error: 'No user logged in' };
+      
+      try {
+        const reminders = await this.mainWindow.userDataManager.getReminders(currentUser.id);
+        const reminder = reminders.find(r => r.id === reminderId);
+        
+        if (!reminder) {
+          return { success: false, error: 'Reminder not found' };
+        }
+
+        // Execute the action based on action params
+        if (reminder.actionParams?.domain) {
+          // Temporal pattern - open the domain
+          const newTab = this.mainWindow.createTab(`https://${reminder.actionParams.domain}`);
+          this.mainWindow.switchActiveTab(newTab.id);
+        }
+
+        // Mark as completed
+        await this.mainWindow.userDataManager.completeReminder(currentUser.id, reminderId);
+        
+        return { success: true, message: 'Reminder executed' };
+      } catch (error) {
+        console.error('[EventManager] Failed to execute reminder:', error);
+        return { success: false, error: 'Failed to execute reminder' };
       }
     });
   }

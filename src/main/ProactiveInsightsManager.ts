@@ -177,6 +177,19 @@ interface ProactiveInsight {
   relevanceScore: number;
   createdAt: Date;
   triggeredAt?: Date;
+  actedUpon?: boolean;
+  actedUponAt?: Date;
+}
+
+/**
+ * Metadata for tracking insight generation
+ */
+interface InsightGenerationMetadata {
+  userId: string;
+  lastGenerationTimestamp: string;
+  lastActivityTimestamp: string;
+  totalInsightsGenerated: number;
+  totalInsightsActedUpon: number;
 }
 
 // ============================================================================
@@ -216,20 +229,36 @@ export class ProactiveInsightsManager {
     console.log(`[ProactiveInsights] Starting behavior analysis for user ${userId}`);
     
     try {
-      // 1. Load raw activities and content analyses
-      const activities = await this.loadUserActivities(userId);
+      // 1. Load metadata to get last generation timestamp
+      const metadata = await this.loadGenerationMetadata(userId);
+      const lastGenerationTime = metadata ? new Date(metadata.lastGenerationTimestamp) : new Date(0);
+      
+      console.log(`[ProactiveInsights] Last generation: ${lastGenerationTime.toISOString()}`);
+      
+      // 2. Load raw activities and content analyses (only new ones)
+      const allActivities = await this.loadUserActivities(userId);
+      const activities = allActivities.filter(a => new Date(a.timestamp) > lastGenerationTime);
+      
+      console.log(`[ProactiveInsights] Loaded ${activities.length} new activities out of ${allActivities.length} total`);
+      
+      if (activities.length === 0) {
+        console.log(`[ProactiveInsights] No new activities to analyze`);
+        // Return existing insights
+        return await this.loadInsights(userId);
+      }
+      
       const contentAnalyses = await this.loadContentAnalyses(userId);
       
-      console.log(`[ProactiveInsights] Loaded ${activities.length} activities, ${contentAnalyses.length} analyses`);
+      console.log(`[ProactiveInsights] Loaded ${contentAnalyses.length} analyses`);
       
-      // 2. Enrich activities with content analysis
+      // 3. Enrich activities with content analysis
       const enrichedActivities = this.enrichActivities(activities, contentAnalyses);
       
-      // 3. Segment into sessions using LLM
+      // 4. Segment into sessions using LLM
       const sessions = await this.segmentSessions(enrichedActivities, userId);
       console.log(`[ProactiveInsights] Segmented into ${sessions.length} sessions`);
       
-      // 4. Detect patterns (parallel)
+      // 5. Detect patterns (parallel)
       const [sequential, topic, abandoned, temporal] = await Promise.all([
         this.findSequentialPatterns(sessions),
         this.findTopicPatterns(sessions),
@@ -240,17 +269,41 @@ export class ProactiveInsightsManager {
       const allPatterns = [...sequential, ...topic, ...abandoned, ...temporal];
       console.log(`[ProactiveInsights] Found ${allPatterns.length} patterns`);
       
-      // 5. Score and rank patterns
+      // 6. Score and rank patterns
       const rankedPatterns = this.rankPatterns(allPatterns);
       this.patternsCache.set(userId, rankedPatterns);
       
-      // 6. Generate actionable insights
-      const insights = await this.generateInsights(rankedPatterns, userId);
-      this.insightsCache.set(userId, insights);
+      // 7. Generate actionable insights
+      const newInsights = await this.generateInsights(rankedPatterns, userId);
       
-      console.log(`[ProactiveInsights] Generated ${insights.length} insights`);
+      // 8. Load existing insights and merge (keeping acted upon ones)
+      const existingInsights = await this.loadInsights(userId);
+      const actedUponInsights = existingInsights.filter(i => i.actedUpon);
       
-      return insights;
+      // Combine: new insights + acted upon insights
+      const allInsights = [...newInsights, ...actedUponInsights];
+      
+      this.insightsCache.set(userId, allInsights);
+      
+      // 9. Save insights persistently
+      await this.saveInsights(userId, allInsights);
+      
+      // 10. Update metadata
+      const lastActivityTimestamp = activities.length > 0 
+        ? activities[activities.length - 1].timestamp 
+        : metadata?.lastActivityTimestamp || new Date().toISOString();
+        
+      await this.saveGenerationMetadata(userId, {
+        userId,
+        lastGenerationTimestamp: new Date().toISOString(),
+        lastActivityTimestamp,
+        totalInsightsGenerated: (metadata?.totalInsightsGenerated || 0) + newInsights.length,
+        totalInsightsActedUpon: actedUponInsights.length
+      });
+      
+      console.log(`[ProactiveInsights] Generated ${newInsights.length} new insights, ${actedUponInsights.length} acted upon`);
+      
+      return allInsights;
     } catch (error) {
       console.error('[ProactiveInsights] Error analyzing behavior:', error);
       return [];
@@ -258,14 +311,41 @@ export class ProactiveInsightsManager {
   }
 
   /**
-   * Get insights for a user (from cache or generate new)
+   * Get insights for a user (from cache or load from disk)
    */
   async getInsights(userId: string): Promise<ProactiveInsight[]> {
     if (this.insightsCache.has(userId)) {
       return this.insightsCache.get(userId)!;
     }
     
+    // Try loading from disk first
+    const insights = await this.loadInsights(userId);
+    if (insights.length > 0) {
+      this.insightsCache.set(userId, insights);
+      return insights;
+    }
+    
+    // If no insights on disk, generate new ones
     return this.analyzeUserBehavior(userId);
+  }
+
+  /**
+   * Mark an insight as acted upon
+   */
+  async markInsightAsActedUpon(userId: string, insightId: string): Promise<void> {
+    const insights = await this.getInsights(userId);
+    const insight = insights.find(i => i.id === insightId);
+    
+    if (insight && !insight.actedUpon) {
+      insight.actedUpon = true;
+      insight.actedUponAt = new Date();
+      
+      // Update cache and save
+      this.insightsCache.set(userId, insights);
+      await this.saveInsights(userId, insights);
+      
+      console.log(`[ProactiveInsights] Marked insight ${insightId} as acted upon`);
+    }
   }
 
   /**
@@ -702,13 +782,30 @@ Be specific and actionable.`;
     const abandoned: AbandonmentPattern[] = [];
     
     for (const session of sessions) {
+      // Skip sessions that are too short (less than 2 activities)
       if (session.activities.length < 2) continue;
+      
+      // Skip sessions with no content analysis (can't determine intent)
+      const hasAnalysis = session.activities.some(a => a.analysis);
+      if (!hasAnalysis) {
+        console.log('[ProactiveInsights] Skipping session with no content analysis');
+        continue;
+      }
+      
+      // Skip very short sessions (less than 30 seconds - likely accidental navigation)
+      if (session.duration < 30000) {
+        console.log('[ProactiveInsights] Skipping very short session (<30s)');
+        continue;
+      }
       
       // LLM analyzes if task was completed
       const analysis = await this.llmAnalyzeCompletion(session);
       
-      if (analysis.completionScore < 0.6) {
-        // Likely abandoned
+      // Validate that we have meaningful analysis (not fallback values)
+      const isMeaningful = this.isAbandonmentAnalysisMeaningful(analysis);
+      
+      if (analysis.completionScore < 0.6 && isMeaningful) {
+        // Likely abandoned with meaningful intent
         abandoned.push({
           type: 'abandoned',
           patternId: `abandoned-${session.sessionId}`,
@@ -721,6 +818,8 @@ Be specific and actionable.`;
           lastOccurrence: session.endTime,
           score: 0
         });
+      } else if (!isMeaningful) {
+        console.log(`[ProactiveInsights] Skipping abandoned task with generic analysis: ${analysis.intent}`);
       }
     }
     
@@ -804,6 +903,57 @@ Output JSON:
         suggestions: []
       };
     }
+  }
+
+  /**
+   * Validate that abandonment analysis is meaningful (not fallback/error values)
+   */
+  private isAbandonmentAnalysisMeaningful(analysis: {
+    intent: string;
+    progress: string;
+    reason: string;
+    completionScore: number;
+    suggestions: string[];
+  }): boolean {
+    // List of generic/fallback values that indicate failed analysis
+    const genericTerms = [
+      'unknown',
+      'analysis failed',
+      'no reason provided',
+      'n/a',
+      'error',
+      'unable to determine',
+      'not clear',
+      'unclear'
+    ];
+    
+    // Check if intent is generic
+    const intentLower = analysis.intent.toLowerCase();
+    const isGenericIntent = genericTerms.some(term => intentLower.includes(term));
+    
+    if (isGenericIntent) {
+      return false;
+    }
+    
+    // Check if progress is generic
+    const progressLower = analysis.progress.toLowerCase();
+    const isGenericProgress = genericTerms.some(term => progressLower.includes(term));
+    
+    if (isGenericProgress) {
+      return false;
+    }
+    
+    // Check if we have at least one suggestion
+    if (analysis.suggestions.length === 0) {
+      return false;
+    }
+    
+    // Intent should be at least somewhat descriptive (more than 10 chars)
+    if (analysis.intent.length < 10) {
+      return false;
+    }
+    
+    return true;
   }
 
   /**
@@ -982,9 +1132,29 @@ Output JSON:
           createdAt: new Date()
         };
       } else if (pattern.type === 'abandoned') {
+        // Additional validation: skip if intent is too generic or suspicious
+        const intentLower = pattern.intent.toLowerCase();
+        const suspiciousTerms = ['unknown', 'no action', 'did not navigate', 'likely'];
+        
+        if (suspiciousTerms.some(term => intentLower.includes(term))) {
+          console.log(`[ProactiveInsights] Skipping insight with suspicious intent: ${pattern.intent}`);
+          return null;
+        }
+        
         // Get the last URL from the session - prefer activity URL, fallback to analysis URL
         const lastActivity = pattern.session.activities[pattern.session.activities.length - 1];
         const lastUrl = lastActivity?.activity?.data?.url || lastActivity?.analysis?.url;
+        
+        // Skip if no URL available (can't resume)
+        if (!lastUrl) {
+          console.log(`[ProactiveInsights] Skipping abandoned task with no URL`);
+          return null;
+        }
+        
+        // Get the session ID for potential resumption
+        const sessionId = pattern.session.sessionId;
+        
+        console.log(`[ProactiveInsights] Creating abandoned task insight: ${pattern.intent}, lastUrl: ${lastUrl}, sessionId: ${sessionId}`);
         
         return {
           id: `insight-${pattern.patternId}`,
@@ -995,7 +1165,8 @@ Output JSON:
           actionType: 'resume_research',
           actionParams: {
             suggestions: pattern.suggestions,
-            lastUrl
+            lastUrl,
+            sessionId
           },
           patterns: [pattern],
           relevanceScore: pattern.score,
@@ -1175,6 +1346,102 @@ Output JSON:
     }
     
     return result;
+  }
+
+  // ============================================================================
+  // PERSISTENCE
+  // ============================================================================
+
+  /**
+   * Get path to insights file
+   */
+  private getInsightsFilePath(userId: string): string {
+    return join(this.userDataManager['usersDir'], 'user-data', userId, 'insights.json');
+  }
+
+  /**
+   * Get path to generation metadata file
+   */
+  private getMetadataFilePath(userId: string): string {
+    return join(this.userDataManager['usersDir'], 'user-data', userId, 'insights-metadata.json');
+  }
+
+  /**
+   * Load insights from disk
+   */
+  private async loadInsights(userId: string): Promise<ProactiveInsight[]> {
+    const filePath = this.getInsightsFilePath(userId);
+    
+    try {
+      const fileContent = await fs.readFile(filePath, 'utf-8');
+      const insights = JSON.parse(fileContent);
+      
+      // Convert date strings back to Date objects
+      return insights.map((i: any) => ({
+        ...i,
+        createdAt: new Date(i.createdAt),
+        triggeredAt: i.triggeredAt ? new Date(i.triggeredAt) : undefined,
+        actedUponAt: i.actedUponAt ? new Date(i.actedUponAt) : undefined
+      }));
+    } catch {
+      // File doesn't exist yet
+      return [];
+    }
+  }
+
+  /**
+   * Save insights to disk
+   */
+  private async saveInsights(userId: string, insights: ProactiveInsight[]): Promise<void> {
+    const filePath = this.getInsightsFilePath(userId);
+    
+    try {
+      // Ensure directory exists
+      await fs.mkdir(join(this.userDataManager['usersDir'], 'user-data', userId), { recursive: true });
+      
+      // Save insights
+      await fs.writeFile(filePath, JSON.stringify(insights, null, 2));
+      
+      console.log(`[ProactiveInsights] Saved ${insights.length} insights for user ${userId}`);
+    } catch (error) {
+      console.error('[ProactiveInsights] Error saving insights:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Load generation metadata
+   */
+  private async loadGenerationMetadata(userId: string): Promise<InsightGenerationMetadata | null> {
+    const filePath = this.getMetadataFilePath(userId);
+    
+    try {
+      const fileContent = await fs.readFile(filePath, 'utf-8');
+      return JSON.parse(fileContent);
+    } catch {
+      // File doesn't exist yet
+      return null;
+    }
+  }
+
+  /**
+   * Save generation metadata
+   */
+  private async saveGenerationMetadata(userId: string, metadata: InsightGenerationMetadata): Promise<void> {
+    const filePath = this.getMetadataFilePath(userId);
+    
+    try {
+      // Ensure directory exists
+      await fs.mkdir(join(this.userDataManager['usersDir'], 'user-data', userId), { recursive: true });
+      
+      // Save metadata
+      await fs.writeFile(filePath, JSON.stringify(metadata, null, 2));
+      
+      console.log(`[ProactiveInsights] Saved generation metadata for user ${userId}`);
+    } catch (error) {
+      console.error('[ProactiveInsights] Error saving metadata:', error);
+      throw error;
+    }
   }
 }
 
