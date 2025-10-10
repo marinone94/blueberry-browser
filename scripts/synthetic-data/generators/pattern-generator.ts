@@ -4,6 +4,7 @@
 
 import type { GeneratedActivity } from '../types';
 import type { LLMContentGenerator } from '../utils/llm-content-generator';
+import pLimit from 'p-limit';
 
 export class PatternGenerator {
   constructor(private llm: LLMContentGenerator) {}
@@ -129,10 +130,23 @@ export class PatternGenerator {
     const numPages = Math.min(12, Math.floor(duration / (3 * 60 * 1000))); // ~3 min per page
     const activities: GeneratedActivity[] = [];
 
-    for (let i = 0; i < numPages; i++) {
-      const subcategory = theme.subcategories[Math.floor(Math.random() * theme.subcategories.length)];
-      const url = await this.llm.generateURL(theme.category, subcategory);
+    // Parallelize URL generation for all pages
+    const pageParams = Array.from({ length: numPages }, (_, i) => ({
+      index: i,
+      subcategory: theme.subcategories[Math.floor(Math.random() * theme.subcategories.length)],
+    }));
 
+    const limit = pLimit(10); // Max 10 concurrent requests
+    const urls = await Promise.all(
+      pageParams.map(params => 
+        limit(async () => ({
+          ...params,
+          url: await this.llm.generateURL(theme.category, params.subcategory),
+        }))
+      )
+    );
+
+    for (const { index: i, subcategory, url } of urls) {
       // Occasionally open new tab
       if (i === 0 || Math.random() < 0.3) {
         activities.push({
@@ -203,11 +217,24 @@ export class PatternGenerator {
     const numPages = Math.min(10, Math.floor(duration / (2 * 60 * 1000))); // ~2 min per page
     const activities: GeneratedActivity[] = [];
 
-    for (let i = 0; i < numPages; i++) {
+    // Parallelize URL generation for all pages
+    const pageParams = Array.from({ length: numPages }, (_, i) => {
       const theme = categories[Math.floor(Math.random() * categories.length)];
       const subcategory = theme.subcategories[Math.floor(Math.random() * theme.subcategories.length)];
-      const url = await this.llm.generateURL(theme.category, subcategory);
+      return { index: i, category: theme.category, subcategory };
+    });
 
+    const limit = pLimit(10); // Max 10 concurrent requests
+    const urls = await Promise.all(
+      pageParams.map(params => 
+        limit(async () => ({
+          ...params,
+          url: await this.llm.generateURL(params.category, params.subcategory),
+        }))
+      )
+    );
+
+    for (const { index: i, category, subcategory, url } of urls) {
       if (i === 0) {
         activities.push({
           type: 'tab_action',
@@ -215,7 +242,7 @@ export class PatternGenerator {
           title: url.title,
           timestamp: startTime,
           data: { action: 'create', tabId: 'tab-1', totalTabs: 1 },
-          category: theme.category,
+          category,
           subcategory,
         });
       }
@@ -227,7 +254,7 @@ export class PatternGenerator {
           title: url.title,
           timestamp: startTime,
           data: { method: 'type' },
-          category: theme.category,
+          category,
           subcategory,
         });
       }
@@ -238,7 +265,7 @@ export class PatternGenerator {
         title: url.title,
         timestamp: startTime,
         data: {},
-        category: theme.category,
+        category,
         subcategory,
       });
 
@@ -248,7 +275,7 @@ export class PatternGenerator {
         title: url.title,
         timestamp: startTime,
         data: {},
-        category: theme.category,
+        category,
         subcategory,
       });
     }
@@ -269,39 +296,44 @@ export class PatternGenerator {
     ];
 
     const activities: GeneratedActivity[] = [];
-    const visitedSites: Map<string, any> = new Map();
+    
+    // Filter sites based on frequency roll
+    const sitesToVisit = routineSites.filter(site => Math.random() < site.frequency);
+    
+    // Parallelize URL generation for all sites
+    const limit = pLimit(10); // Max 10 concurrent requests
+    const urlResults = await Promise.all(
+      sitesToVisit.map(site => 
+        limit(async () => ({
+          ...site,
+          urlData: await this.llm.generateURL(site.category, site.subcategory),
+        }))
+      )
+    );
 
-    // Generate or retrieve URLs for routine sites
-    for (const site of routineSites) {
-      if (Math.random() < site.frequency) {
-        let urlData = visitedSites.get(site.subcategory);
-        if (!urlData) {
-          urlData = await this.llm.generateURL(site.category, site.subcategory);
-          visitedSites.set(site.subcategory, urlData);
-        }
+    // Generate activities for each visited site
+    for (const { category, subcategory, urlData } of urlResults) {
+      // Visit
+      activities.push({
+        type: 'page_visit',
+        url: urlData.url,
+        title: urlData.title,
+        timestamp: startTime,
+        data: {},
+        category,
+        subcategory,
+      });
 
-        // Visit
-        activities.push({
-          type: 'page_visit',
-          url: urlData.url,
-          title: urlData.title,
-          timestamp: startTime,
-          data: {},
-          category: site.category,
-          subcategory: site.subcategory,
-        });
-
-        // Quick interaction
-        activities.push({
-          type: 'page_interaction',
-          url: urlData.url,
-          title: urlData.title,
-          timestamp: startTime,
-          data: {},
-          category: site.category,
-          subcategory: site.subcategory,
-        });
-      }
+      // Quick interaction
+      activities.push({
+        type: 'page_interaction',
+        url: urlData.url,
+        title: urlData.title,
+        timestamp: startTime,
+        data: {},
+        category,
+        subcategory,
+      });
     }
 
     return activities;

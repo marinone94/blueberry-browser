@@ -69,6 +69,9 @@ export class Window {
       this._userDataManager,
       this._vectorSearchManager
     );
+    
+    // Set window reference for auto-completion notifications
+    this._proactiveInsightsManager.setWindow(this);
 
     // Initialize content analyzer
     this._contentAnalyzer = new ContentAnalyzer(

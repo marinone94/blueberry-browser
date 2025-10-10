@@ -177,8 +177,22 @@ interface ProactiveInsight {
   relevanceScore: number;
   createdAt: Date;
   triggeredAt?: Date;
+  
+  // Status tracking (replaces actedUpon)
+  status: 'pending' | 'in_progress' | 'completed';
+  
+  // Legacy support (deprecated)
   actedUpon?: boolean;
   actedUponAt?: Date;
+  
+  // Progress tracking for abandoned tasks
+  lastResumedAt?: Date;
+  linkedSessionIds?: string[]; // Track all sessions related to this insight
+  completionProgress?: number; // 0.0 - 1.0
+  
+  // Tracking for tab reopening
+  openedTabUrls?: string[]; // URLs that were reopened by the user
+  autoCompletionTimerId?: NodeJS.Timeout | null; // Timer for auto-completion logic
 }
 
 /**
@@ -208,6 +222,8 @@ export class ProactiveInsightsManager {
   private userDataManager: UserDataManager;
   private patternsCache: Map<string, Pattern[]> = new Map(); // userId -> patterns
   private insightsCache: Map<string, ProactiveInsight[]> = new Map(); // userId -> insights
+  private autoCompletionTimers: Map<string, NodeJS.Timeout> = new Map(); // insightId -> timer
+  private window: any; // Reference to Window for sending IPC events
   
   constructor(
     userDataManager: UserDataManager,
@@ -215,6 +231,13 @@ export class ProactiveInsightsManager {
   ) {
     this.userDataManager = userDataManager;
     // vectorSearchManager reserved for future use (similarity computations)
+  }
+
+  /**
+   * Set the window reference for sending IPC events
+   */
+  setWindow(window: any): void {
+    this.window = window;
   }
 
   // ============================================================================
@@ -276,12 +299,23 @@ export class ProactiveInsightsManager {
       // 7. Generate actionable insights
       const newInsights = await this.generateInsights(rankedPatterns, userId);
       
-      // 8. Load existing insights and merge (keeping acted upon ones)
+      // 8. Load existing insights and update with new session data
       const existingInsights = await this.loadInsights(userId);
-      const actedUponInsights = existingInsights.filter(i => i.actedUpon);
       
-      // Combine: new insights + acted upon insights
-      const allInsights = [...newInsights, ...actedUponInsights];
+      // 8a. Check for session linking - do active/in_progress abandoned tasks relate to new sessions?
+      const updatedExistingInsights = await this.updateInsightsWithNewSessions(
+        existingInsights,
+        sessions,
+        userId
+      );
+      
+      // 8b. Keep insights that are in_progress or completed (not pending unless they're old)
+      const activeInsights = updatedExistingInsights.filter(i => 
+        i.status === 'in_progress' || i.status === 'completed'
+      );
+      
+      // Combine: new insights + active insights
+      const allInsights = [...newInsights, ...activeInsights];
       
       this.insightsCache.set(userId, allInsights);
       
@@ -289,19 +323,22 @@ export class ProactiveInsightsManager {
       await this.saveInsights(userId, allInsights);
       
       // 10. Update metadata
-      const lastActivityTimestamp = activities.length > 0 
-        ? activities[activities.length - 1].timestamp 
-        : metadata?.lastActivityTimestamp || new Date().toISOString();
+      // Use the latest activity timestamp as lastGenerationTimestamp to avoid re-processing
+      // This is critical for synthetic data with past timestamps
+      const allLoadedActivities = await this.loadUserActivities(userId);
+      const lastActivityTimestamp = allLoadedActivities.length > 0 
+        ? allLoadedActivities[allLoadedActivities.length - 1].timestamp 
+        : new Date().toISOString();
         
       await this.saveGenerationMetadata(userId, {
         userId,
-        lastGenerationTimestamp: new Date().toISOString(),
+        lastGenerationTimestamp: lastActivityTimestamp, // Use last activity time, not current time
         lastActivityTimestamp,
         totalInsightsGenerated: (metadata?.totalInsightsGenerated || 0) + newInsights.length,
-        totalInsightsActedUpon: actedUponInsights.length
+        totalInsightsActedUpon: activeInsights.filter(i => i.status === 'completed').length
       });
       
-      console.log(`[ProactiveInsights] Generated ${newInsights.length} new insights, ${actedUponInsights.length} acted upon`);
+      console.log(`[ProactiveInsights] Generated ${newInsights.length} new insights, ${activeInsights.length} active insights`);
       
       return allInsights;
     } catch (error) {
@@ -330,22 +367,239 @@ export class ProactiveInsightsManager {
   }
 
   /**
-   * Mark an insight as acted upon
+   * Mark an insight as in progress (user clicked to resume)
    */
-  async markInsightAsActedUpon(userId: string, insightId: string): Promise<void> {
+  async markInsightAsInProgress(userId: string, insightId: string): Promise<void> {
     const insights = await this.getInsights(userId);
     const insight = insights.find(i => i.id === insightId);
     
-    if (insight && !insight.actedUpon) {
-      insight.actedUpon = true;
-      insight.actedUponAt = new Date();
+    if (insight && insight.status === 'pending') {
+      insight.status = 'in_progress';
+      insight.lastResumedAt = new Date();
+      
+      // Initialize linkedSessionIds if needed
+      if (!insight.linkedSessionIds) {
+        insight.linkedSessionIds = [];
+      }
       
       // Update cache and save
       this.insightsCache.set(userId, insights);
       await this.saveInsights(userId, insights);
       
-      console.log(`[ProactiveInsights] Marked insight ${insightId} as acted upon`);
+      console.log(`[ProactiveInsights] Marked insight ${insightId} as in progress`);
     }
+  }
+
+  /**
+   * Mark an insight as completed (manually or automatically)
+   */
+  async markInsightAsCompleted(userId: string, insightId: string): Promise<void> {
+    const insights = await this.getInsights(userId);
+    const insight = insights.find(i => i.id === insightId);
+    
+    if (insight && insight.status !== 'completed') {
+      insight.status = 'completed';
+      insight.completionProgress = 1.0;
+      insight.actedUponAt = new Date(); // For legacy compatibility
+      
+      // Update cache and save
+      this.insightsCache.set(userId, insights);
+      await this.saveInsights(userId, insights);
+      
+      console.log(`[ProactiveInsights] Marked insight ${insightId} as completed`);
+    }
+  }
+
+  /**
+   * Legacy method for backward compatibility
+   * @deprecated Use markInsightAsCompleted instead
+   */
+  async markInsightAsActedUpon(userId: string, insightId: string): Promise<void> {
+    await this.markInsightAsCompleted(userId, insightId);
+  }
+
+  /**
+   * Get tabs (URLs and titles) from session IDs
+   * Returns tabs sorted in reverse chronological order (latest first)
+   */
+  async getTabsFromSessions(userId: string, sessionIds: string[]): Promise<Array<{url: string, title: string, timestamp: string, sessionId: string}>> {
+    const allTabs: Array<{url: string, title: string, timestamp: string, sessionId: string}> = [];
+    
+    try {
+      console.log(`[ProactiveInsights] Getting tabs for sessions:`, sessionIds);
+      
+      // Load activities for all sessions
+      const activities = await this.loadUserActivities(userId);
+      console.log(`[ProactiveInsights] Loaded ${activities.length} total activities`);
+      
+      // Debug: Show sample session IDs from activities
+      const sampleSessionIds = [...new Set(activities.slice(0, 10).map(a => a.sessionId))];
+      console.log(`[ProactiveInsights] Sample session IDs from activities:`, sampleSessionIds.slice(0, 3));
+      
+      // Filter activities that belong to the specified sessions
+      const relevantActivities = activities.filter(a => sessionIds.includes(a.sessionId));
+      console.log(`[ProactiveInsights] Filtered to ${relevantActivities.length} relevant activities for the specified sessions`);
+      
+      // Extract unique URLs with page visits and titles
+      const urlMap = new Map<string, {url: string, title: string, timestamp: string, sessionId: string}>();
+      
+      for (const activity of relevantActivities) {
+        // Look for page visit activities with URLs
+        if (activity.type === 'page_visit' && activity.data?.url) {
+          const url = activity.data.url;
+          const title = activity.data.title || url;
+          const timestamp = activity.timestamp;
+          const sessionId = activity.sessionId;
+          
+          // Keep the latest occurrence of each URL
+          if (!urlMap.has(url) || new Date(urlMap.get(url)!.timestamp) < new Date(timestamp)) {
+            urlMap.set(url, { url, title, timestamp, sessionId });
+          }
+        }
+      }
+      
+      // Convert to array and sort by timestamp (latest first)
+      allTabs.push(...urlMap.values());
+      allTabs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      
+      console.log(`[ProactiveInsights] Found ${allTabs.length} unique tabs (URLs) across ${sessionIds.length} sessions`);
+      if (allTabs.length > 0) {
+        console.log(`[ProactiveInsights] Sample tabs:`, allTabs.slice(0, 3).map(t => t.title));
+      }
+      
+      return allTabs;
+    } catch (error) {
+      console.error('[ProactiveInsights] Error getting tabs from sessions:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Track that a tab was opened for an insight
+   */
+  async trackOpenedTab(userId: string, insightId: string, url: string): Promise<void> {
+    const insights = await this.getInsights(userId);
+    const insight = insights.find(i => i.id === insightId);
+    
+    if (!insight) {
+      console.error(`[ProactiveInsights] Insight ${insightId} not found for tracking opened tab`);
+      return;
+    }
+    
+    // Initialize openedTabUrls if needed
+    if (!insight.openedTabUrls) {
+      insight.openedTabUrls = [];
+    }
+    
+    // Add the URL if not already tracked
+    if (!insight.openedTabUrls.includes(url)) {
+      insight.openedTabUrls.push(url);
+      console.log(`[ProactiveInsights] Tracked opened tab for insight ${insightId}: ${url} (${insight.openedTabUrls.length} total)`);
+    }
+    
+    // Update cache and save
+    this.insightsCache.set(userId, insights);
+    await this.saveInsights(userId, insights);
+    
+    // Start auto-completion timer if this is the first tab opened
+    if (insight.openedTabUrls.length === 1) {
+      this.startAutoCompletionTimer(userId, insightId);
+    }
+  }
+
+  /**
+   * Start a 5-minute timer for auto-completion logic
+   */
+  private startAutoCompletionTimer(userId: string, insightId: string): void {
+    // Clear any existing timer for this insight
+    const existingTimer = this.autoCompletionTimers.get(insightId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+    
+    console.log(`[ProactiveInsights] Starting auto-completion timer for insight ${insightId} (5 minutes)`);
+    
+    // Set a 5-minute timer
+    const timer = setTimeout(async () => {
+      await this.handleAutoCompletion(userId, insightId);
+    }, 5 * 60 * 1000); // 5 minutes
+    
+    this.autoCompletionTimers.set(insightId, timer);
+  }
+
+  /**
+   * Handle auto-completion logic after 5 minutes
+   */
+  private async handleAutoCompletion(userId: string, insightId: string): Promise<void> {
+    console.log(`[ProactiveInsights] Auto-completion timer fired for insight ${insightId}`);
+    
+    try {
+      const percentage = await this.getTabCompletionPercentage(userId, insightId);
+      
+      if (percentage > 0.5) {
+        // More than 50% opened: auto-complete
+        console.log(`[ProactiveInsights] Auto-completing insight ${insightId} (${(percentage * 100).toFixed(1)}% complete)`);
+        await this.markInsightAsCompleted(userId, insightId);
+        
+        // Notify the renderer
+        if (this.window?.sidebar?.view?.webContents) {
+          this.window.sidebar.view.webContents.send('insight-auto-completed', {
+            insightId,
+            percentage,
+            reason: 'More than 50% of tabs were opened'
+          });
+        }
+      } else if (percentage > 0) {
+        // Some tabs opened but less than 50%: ask for confirmation
+        console.log(`[ProactiveInsights] Requesting completion confirmation for insight ${insightId} (${(percentage * 100).toFixed(1)}% complete)`);
+        
+        // Send confirmation request to renderer
+        if (this.window?.sidebar?.view?.webContents) {
+          this.window.sidebar.view.webContents.send('insight-completion-confirmation-request', {
+            insightId,
+            percentage
+          });
+        }
+      }
+      
+      // Clean up the timer
+      this.autoCompletionTimers.delete(insightId);
+    } catch (error) {
+      console.error(`[ProactiveInsights] Error in auto-completion handler:`, error);
+      this.autoCompletionTimers.delete(insightId);
+    }
+  }
+
+  /**
+   * Cancel auto-completion timer for an insight
+   */
+  cancelAutoCompletionTimer(insightId: string): void {
+    const timer = this.autoCompletionTimers.get(insightId);
+    if (timer) {
+      clearTimeout(timer);
+      this.autoCompletionTimers.delete(insightId);
+      console.log(`[ProactiveInsights] Cancelled auto-completion timer for insight ${insightId}`);
+    }
+  }
+
+  /**
+   * Get the completion percentage based on opened tabs
+   */
+  async getTabCompletionPercentage(userId: string, insightId: string): Promise<number> {
+    const insights = await this.getInsights(userId);
+    const insight = insights.find(i => i.id === insightId);
+    
+    if (!insight || !insight.linkedSessionIds || insight.linkedSessionIds.length === 0) {
+      return 0;
+    }
+    
+    const allTabs = await this.getTabsFromSessions(userId, insight.linkedSessionIds);
+    const totalTabs = allTabs.length;
+    const openedTabs = insight.openedTabUrls?.length || 0;
+    
+    if (totalTabs === 0) return 0;
+    
+    return openedTabs / totalTabs;
   }
 
   /**
@@ -367,6 +621,197 @@ export class ProactiveInsightsManager {
     }
     
     return triggered;
+  }
+
+  // ============================================================================
+  // SESSION LINKING & COMPLETION TRACKING
+  // ============================================================================
+
+  /**
+   * Update existing insights with new session data
+   * Links new sessions to abandoned tasks if they're related
+   * Marks tasks as completed if completion score is high
+   */
+  private async updateInsightsWithNewSessions(
+    insights: ProactiveInsight[],
+    newSessions: BrowsingSession[],
+    _userId: string // Unused for now, reserved for future per-user configuration
+  ): Promise<ProactiveInsight[]> {
+    const now = Date.now();
+    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+    
+    for (const insight of insights) {
+      // Only process abandoned tasks that are pending or in_progress
+      if (insight.type !== 'abandoned' || insight.status === 'completed') {
+        continue;
+      }
+      
+      const pattern = insight.patterns[0] as AbandonmentPattern;
+      if (!pattern || pattern.type !== 'abandoned') continue;
+      
+      // Check time window
+      const timeSinceAbandonment = now - pattern.lastOccurrence.getTime();
+      
+      // For in_progress tasks: always check
+      // For pending tasks: only check within 24h window
+      const shouldCheck = insight.status === 'in_progress' || timeSinceAbandonment < TWENTY_FOUR_HOURS;
+      
+      if (!shouldCheck) continue;
+      
+      // Check if any new session relates to this abandoned task
+      for (const session of newSessions) {
+        const isRelated = await this.isSessionRelatedToAbandonedTask(session, pattern);
+        
+        if (isRelated) {
+          console.log(`[ProactiveInsights] Linking session ${session.sessionId} to insight ${insight.id}`);
+          
+          // Link the session
+          if (!insight.linkedSessionIds) {
+            insight.linkedSessionIds = [];
+          }
+          if (!insight.linkedSessionIds.includes(session.sessionId)) {
+            insight.linkedSessionIds.push(session.sessionId);
+          }
+          
+          // Update status to in_progress if it was pending
+          if (insight.status === 'pending') {
+            insight.status = 'in_progress';
+          }
+          
+          insight.lastResumedAt = session.endTime;
+          
+          // Check if this session indicates task completion
+          const completionAnalysis = await this.llmAnalyzeCompletion(session);
+          
+          if (completionAnalysis.completionScore >= 0.6) {
+            insight.status = 'completed';
+            insight.completionProgress = completionAnalysis.completionScore;
+            insight.actedUponAt = new Date();
+            
+            console.log(`[ProactiveInsights] Auto-completed insight ${insight.id} with score ${completionAnalysis.completionScore}`);
+          } else {
+            // Update progress but don't complete
+            insight.completionProgress = completionAnalysis.completionScore;
+          }
+          
+          break; // Only link to first matching session
+        }
+      }
+    }
+    
+    return insights;
+  }
+
+  /**
+   * Check if a session is related to an abandoned task
+   */
+  private async isSessionRelatedToAbandonedTask(
+    session: BrowsingSession,
+    abandonedPattern: AbandonmentPattern
+  ): Promise<boolean> {
+    // Get key characteristics of the abandoned session
+    const abandonedActivities = abandonedPattern.session.activities
+      .filter(a => a.analysis)
+      .map(a => ({
+        category: a.analysis!.category,
+        subcategory: a.analysis!.subcategory,
+        brand: a.analysis!.brand,
+        url: a.analysis!.url,
+        pageDesc: a.analysis!.pageDescription
+      }));
+    
+    if (abandonedActivities.length === 0) return false;
+    
+    // Get characteristics of the new session
+    const newActivities = session.activities
+      .filter(a => a.analysis)
+      .map(a => ({
+        category: a.analysis!.category,
+        subcategory: a.analysis!.subcategory,
+        brand: a.analysis!.brand,
+        url: a.analysis!.url,
+        pageDesc: a.analysis!.pageDescription
+      }));
+    
+    if (newActivities.length === 0) return false;
+    
+    // Simple heuristics for relatedness
+    // 1. Check if primary categories match
+    const categoriesMatch = abandonedActivities.some(a => 
+      newActivities.some(n => n.category === a.category)
+    );
+    
+    // 2. Check if any URLs/domains match
+    const domainsMatch = abandonedActivities.some(a => {
+      const abandonedDomain = new URL(a.url).hostname;
+      return newActivities.some(n => new URL(n.url).hostname === abandonedDomain);
+    });
+    
+    // 3. Check if brands match (strong signal)
+    const brandsMatch = abandonedActivities.some(a => 
+      a.brand && newActivities.some(n => n.brand === a.brand)
+    );
+    
+    // If we have strong signals, use LLM for semantic confirmation
+    if (categoriesMatch || domainsMatch || brandsMatch) {
+      return await this.llmCheckSessionRelatedness(
+        abandonedPattern.intent,
+        abandonedActivities,
+        newActivities
+      );
+    }
+    
+    return false;
+  }
+
+  /**
+   * LLM determines if new session is related to abandoned task
+   */
+  private async llmCheckSessionRelatedness(
+    abandonedIntent: string,
+    abandonedActivities: any[],
+    newActivities: any[]
+  ): Promise<boolean> {
+    const prompt = `You are analyzing if a user resumed an abandoned task.
+
+Original abandoned task:
+Intent: ${abandonedIntent}
+Pages visited: ${abandonedActivities.slice(0, 3).map(a => 
+  `- ${a.category}/${a.subcategory}${a.brand ? ` (${a.brand})` : ''}\n  ${a.pageDesc.substring(0, 100)}`
+).join('\n')}
+
+New browsing session:
+Pages visited: ${newActivities.slice(0, 3).map(a => 
+  `- ${a.category}/${a.subcategory}${a.brand ? ` (${a.brand})` : ''}\n  ${a.pageDesc.substring(0, 100)}`
+).join('\n')}
+
+Question: Is the user continuing the same task/goal?
+
+Consider:
+- Same product/service being researched
+- Same brand or competitors
+- Same problem being solved
+- Logical continuation of the abandoned flow
+
+Output JSON only:
+{
+  "isRelated": true/false,
+  "reason": "one sentence explanation",
+  "confidence": 0.0-1.0
+}`;
+
+    try {
+      const result = await generateText({
+        model: openai('gpt-5-nano'),
+        prompt,
+      });
+
+      const parsed = JSON.parse(result.text);
+      return parsed.isRelated === true && parsed.confidence > 0.6;
+    } catch (error) {
+      console.error('[ProactiveInsights] Error checking session relatedness:', error);
+      return false;
+    }
   }
 
   // ============================================================================
@@ -493,8 +938,12 @@ Output JSON only:
       .filter(Boolean) as string[];
     const primaryCategory = this.mostCommon(categories);
     
+    // Use the actual sessionId from the activities (they all share the same sessionId)
+    // instead of generating a new one, so we can later retrieve tabs from these sessions
+    const sessionId = activities[0].activity.sessionId;
+    
     return {
-      sessionId: `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      sessionId,
       userId,
       startTime,
       endTime,
@@ -1113,7 +1562,8 @@ Output JSON:
           },
           patterns: [pattern],
           relevanceScore: pattern.score,
-          createdAt: new Date()
+          createdAt: new Date(),
+          status: 'pending'
         };
       } else if (pattern.type === 'research_topic') {
         return {
@@ -1129,7 +1579,8 @@ Output JSON:
           },
           patterns: [pattern],
           relevanceScore: pattern.score,
-          createdAt: new Date()
+          createdAt: new Date(),
+          status: 'pending'
         };
       } else if (pattern.type === 'abandoned') {
         // Additional validation: skip if intent is too generic or suspicious
@@ -1170,7 +1621,10 @@ Output JSON:
           },
           patterns: [pattern],
           relevanceScore: pattern.score,
-          createdAt: new Date()
+          createdAt: new Date(),
+          status: 'pending',
+          linkedSessionIds: [sessionId], // Initialize with the original abandoned session
+          completionProgress: pattern.completionScore
         };
       } else if (pattern.type === 'temporal') {
         const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -1188,7 +1642,8 @@ Output JSON:
           },
           patterns: [pattern],
           relevanceScore: pattern.score,
-          createdAt: new Date()
+          createdAt: new Date(),
+          status: 'pending'
         };
       }
     } catch (error) {
@@ -1376,13 +1831,68 @@ Output JSON:
       const fileContent = await fs.readFile(filePath, 'utf-8');
       const insights = JSON.parse(fileContent);
       
-      // Convert date strings back to Date objects
-      return insights.map((i: any) => ({
-        ...i,
-        createdAt: new Date(i.createdAt),
-        triggeredAt: i.triggeredAt ? new Date(i.triggeredAt) : undefined,
-        actedUponAt: i.actedUponAt ? new Date(i.actedUponAt) : undefined
-      }));
+      // Convert date strings back to Date objects and migrate legacy format
+      return insights.map((i: any) => {
+        // Migrate legacy actedUpon to new status system
+        let status: 'pending' | 'in_progress' | 'completed' = i.status || 'pending';
+        if (!i.status && i.actedUpon) {
+          status = 'completed';
+        }
+        
+        // Convert dates in patterns as well
+        const patterns = i.patterns?.map((p: any) => {
+          const pattern: any = {
+            ...p,
+            lastOccurrence: p.lastOccurrence ? new Date(p.lastOccurrence) : undefined
+          };
+          
+          // Convert dates in sessions (for TopicPattern and AbandonmentPattern)
+          if (p.sessions) {
+            pattern.sessions = p.sessions.map((s: any) => ({
+              ...s,
+              startTime: s.startTime ? new Date(s.startTime) : undefined,
+              endTime: s.endTime ? new Date(s.endTime) : undefined,
+              activities: s.activities?.map((a: any) => ({
+                ...a,
+                activity: {
+                  ...a.activity,
+                  timestamp: a.activity?.timestamp ? new Date(a.activity.timestamp) : undefined
+                }
+              })) || []
+            }));
+          }
+          
+          // Convert dates in single session (for AbandonmentPattern)
+          if (p.session) {
+            pattern.session = {
+              ...p.session,
+              startTime: p.session.startTime ? new Date(p.session.startTime) : undefined,
+              endTime: p.session.endTime ? new Date(p.session.endTime) : undefined,
+              activities: p.session.activities?.map((a: any) => ({
+                ...a,
+                activity: {
+                  ...a.activity,
+                  timestamp: a.activity?.timestamp ? new Date(a.activity.timestamp) : undefined
+                }
+              })) || []
+            };
+          }
+          
+          return pattern;
+        }) || [];
+        
+        return {
+          ...i,
+          status,
+          patterns,
+          createdAt: new Date(i.createdAt),
+          triggeredAt: i.triggeredAt ? new Date(i.triggeredAt) : undefined,
+          actedUponAt: i.actedUponAt ? new Date(i.actedUponAt) : undefined,
+          lastResumedAt: i.lastResumedAt ? new Date(i.lastResumedAt) : undefined,
+          linkedSessionIds: i.linkedSessionIds || [],
+          completionProgress: i.completionProgress || 0
+        };
+      });
     } catch {
       // File doesn't exist yet
       return [];

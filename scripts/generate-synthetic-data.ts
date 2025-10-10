@@ -143,6 +143,11 @@ async function main() {
     // Register user account if not dry run
     if (!options.dryRun) {
       await ensureUserAccount(config.userId);
+      
+      // Populate browsing history from activities
+      console.log('\n📚 Populating browsing history from activities...');
+      const historyCount = await populateBrowsingHistory(config.userId);
+      console.log(`   ✓ Added ${historyCount} history entries`);
     }
 
     // Show results
@@ -193,6 +198,17 @@ async function cleanUserData(userId: string): Promise<void> {
   try {
     await fs.rm(userDataPath, { recursive: true, force: true });
     console.log(`   ✓ Cleaned: ${userDataPath}`);
+  } catch (error) {
+    // Ignore if doesn't exist
+  }
+  
+  // Also clean insights metadata to force fresh analysis
+  const { homedir } = require('os');
+  const appSupportPath = join(homedir(), 'Library', 'Application Support', 'blueberry-browser');
+  const insightsMetadataPath = join(appSupportPath, 'users', 'user-data', userId, 'proactive-insights', 'generation-metadata.json');
+  try {
+    await fs.rm(insightsMetadataPath, { force: true });
+    console.log(`   ✓ Cleaned insights metadata`);
   } catch (error) {
     // Ignore if doesn't exist
   }
@@ -263,6 +279,82 @@ async function ensureUserAccount(userId: string): Promise<void> {
   } catch (error) {
     console.error(`   ⚠️  Warning: Failed to update accounts.json:`, error);
     console.log(`   💡 You may need to manually add user ${userId} in the browser`);
+  }
+}
+
+/**
+ * Populate browsing history from raw activities
+ * Directly manipulates files without needing Electron
+ */
+async function populateBrowsingHistory(userId: string): Promise<number> {
+  const userDataPath = getUserDataPath(userId);
+  const activityDir = join(userDataPath, 'raw-activity');
+  const historyPath = join(userDataPath, 'browsing-history.json');
+  
+  try {
+    // Load all activity files
+    const files = await fs.readdir(activityDir);
+    const jsonFiles = files.filter(f => f.endsWith('.json')).sort();
+    
+    let processedCount = 0;
+    let history: any[] = [];
+    
+    // Load existing history
+    try {
+      const historyContent = await fs.readFile(historyPath, 'utf-8');
+      history = JSON.parse(historyContent);
+    } catch (error) {
+      // No history exists yet
+    }
+    
+    const existingUrls = new Set(history.map(h => `${h.url}|${new Date(h.visitedAt).getTime()}`));
+    
+    // Process each activity file
+    for (const file of jsonFiles) {
+      const filePath = join(activityDir, file);
+      const content = await fs.readFile(filePath, 'utf-8');
+      const activities = JSON.parse(content);
+      
+      // Extract page_visit activities
+      for (const activity of activities) {
+        if (activity.type === 'page_visit' && activity.data.url && activity.data.title) {
+          const timestamp = new Date(activity.timestamp).getTime();
+          const key = `${activity.data.url}|${timestamp}`;
+          
+          // Skip duplicates
+          if (existingUrls.has(key)) {
+            continue;
+          }
+          
+          // Add to history
+          const entry = {
+            id: `${timestamp}-${Math.random().toString(36).substr(2, 9)}`,
+            url: activity.data.url,
+            title: activity.data.title,
+            visitedAt: activity.timestamp,
+            favicon: undefined,
+            analysisId: undefined
+          };
+          
+          history.unshift(entry); // Add to beginning
+          existingUrls.add(key);
+          processedCount++;
+        }
+      }
+    }
+    
+    // Limit to 1000 entries
+    if (history.length > 1000) {
+      history = history.slice(0, 1000);
+    }
+    
+    // Save history
+    await fs.writeFile(historyPath, JSON.stringify(history, null, 2));
+    
+    return processedCount;
+  } catch (error) {
+    console.error(`   ⚠️  Warning: Failed to populate history:`, error);
+    return 0;
   }
 }
 

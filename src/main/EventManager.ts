@@ -903,9 +903,9 @@ export class EventManager {
           return { success: false, error: 'Insight not found' };
         }
 
-        // Check if already acted upon (except for reminders)
-        if (insight.actedUpon && insight.actionType !== 'remind') {
-          return { success: false, error: 'This insight has already been acted upon' };
+        // Check if already completed (except for reminders)
+        if (insight.status === 'completed' && insight.actionType !== 'remind') {
+          return { success: false, error: 'This insight has already been completed' };
         }
 
         // Execute action based on type
@@ -920,8 +920,8 @@ export class EventManager {
             this.mainWindow.switchActiveTab(lastTab.id);
           }
           
-          // Mark as acted upon
-          await this.mainWindow.proactiveInsightsManager.markInsightAsActedUpon(currentUser.id, insightId);
+          // Mark as completed for workflow insights
+          await this.mainWindow.proactiveInsightsManager.markInsightAsCompleted(currentUser.id, insightId);
           
           return { success: true, message: `Opened ${urls.length} tabs` };
         } else if (insight.actionType === 'resume_research') {
@@ -933,8 +933,14 @@ export class EventManager {
               const newTab = this.mainWindow.createTab(lastUrl);
               this.mainWindow.switchActiveTab(newTab.id);
               
-              // Mark as acted upon
-              await this.mainWindow.proactiveInsightsManager.markInsightAsActedUpon(currentUser.id, insightId);
+              // For abandoned tasks: mark as in_progress (not completed)
+              // The system will auto-detect completion based on browsing activity
+              if (insight.type === 'abandoned') {
+                await this.mainWindow.proactiveInsightsManager.markInsightAsInProgress(currentUser.id, insightId);
+              } else {
+                // For other research insights: mark as completed
+                await this.mainWindow.proactiveInsightsManager.markInsightAsCompleted(currentUser.id, insightId);
+              }
               
               return { success: true, message: 'Resumed where you left off' };
             } catch (error) {
@@ -1073,6 +1079,95 @@ export class EventManager {
         return { success: false, error: 'Failed to execute reminder' };
       }
     });
+
+    // Mark insight as completed manually
+    ipcMain.handle("mark-insight-completed", async (_, insightId: string) => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return { success: false, error: 'No user logged in' };
+      
+      try {
+        await this.mainWindow.proactiveInsightsManager.markInsightAsCompleted(currentUser.id, insightId);
+        return { success: true, message: 'Insight marked as completed' };
+      } catch (error) {
+        console.error('[EventManager] Failed to mark insight as completed:', error);
+        return { success: false, error: 'Failed to mark insight as completed' };
+      }
+    });
+
+    // Get tabs from session IDs (for unfinished tasks)
+    ipcMain.handle("get-insight-session-tabs", async (_, insightId: string) => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return { success: false, error: 'No user logged in', tabs: [] };
+      
+      try {
+        const insights = await this.mainWindow.proactiveInsightsManager.getInsights(currentUser.id);
+        const insight = insights.find(i => i.id === insightId);
+        
+        if (!insight) {
+          return { success: false, error: 'Insight not found', tabs: [] };
+        }
+        
+        if (!insight.linkedSessionIds || insight.linkedSessionIds.length === 0) {
+          return { success: false, error: 'No sessions linked to this insight', tabs: [] };
+        }
+        
+        const tabs = await this.mainWindow.proactiveInsightsManager.getTabsFromSessions(
+          currentUser.id, 
+          insight.linkedSessionIds
+        );
+        
+        return { success: true, tabs, totalTabs: tabs.length, openedTabs: insight.openedTabUrls || [] };
+      } catch (error) {
+        console.error('[EventManager] Failed to get session tabs:', error);
+        return { success: false, error: 'Failed to get session tabs', tabs: [] };
+      }
+    });
+
+    // Open a tab and track it for an insight
+    ipcMain.handle("open-and-track-tab", async (_, insightId: string, url: string) => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return { success: false, error: 'No user logged in' };
+      
+      try {
+        // Open the tab
+        const newTab = this.mainWindow.createTab(url);
+        this.mainWindow.switchActiveTab(newTab.id);
+        
+        // Track the opened tab
+        await this.mainWindow.proactiveInsightsManager.trackOpenedTab(currentUser.id, insightId, url);
+        
+        // Get completion percentage
+        const completionPercentage = await this.mainWindow.proactiveInsightsManager.getTabCompletionPercentage(
+          currentUser.id, 
+          insightId
+        );
+        
+        console.log(`[EventManager] Opened and tracked tab: ${url}, completion: ${(completionPercentage * 100).toFixed(1)}%`);
+        
+        return { success: true, message: 'Tab opened and tracked', completionPercentage };
+      } catch (error) {
+        console.error('[EventManager] Failed to open and track tab:', error);
+        return { success: false, error: 'Failed to open and track tab' };
+      }
+    });
+
+    // Get tab completion percentage for an insight
+    ipcMain.handle("get-tab-completion-percentage", async (_, insightId: string) => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return { success: false, error: 'No user logged in', percentage: 0 };
+      
+      try {
+        const percentage = await this.mainWindow.proactiveInsightsManager.getTabCompletionPercentage(
+          currentUser.id, 
+          insightId
+        );
+        
+        return { success: true, percentage };
+      } catch (error) {
+        console.error('[EventManager] Failed to get tab completion percentage:', error);
+        return { success: false, error: 'Failed to get completion percentage', percentage: 0 };
+      }
+    });
   }
 
   private handleCommunicationEvents(): void {
@@ -1137,6 +1232,16 @@ export class EventManager {
       } catch (error) {
         console.error('Failed to get activity data size:', error);
         return 0;
+      }
+    });
+
+    ipcMain.handle('populate-history-from-activities', async (_, userId: string) => {
+      try {
+        const count = await this.mainWindow.userDataManager.populateHistoryFromActivities(userId);
+        return { success: true, count };
+      } catch (error) {
+        console.error('Failed to populate history from activities:', error);
+        return { success: false, error: String(error) };
       }
     });
 

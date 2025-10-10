@@ -12,8 +12,19 @@ import {
   TrendingUp,
   ArrowRight,
   Loader2,
-  CheckCircle
+  CheckCircle,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink
 } from 'lucide-react'
+
+interface SessionTab {
+  url: string
+  title: string
+  timestamp: string
+  sessionId: string
+}
 
 interface InsightsProps {
   onClose: () => void
@@ -49,7 +60,12 @@ const getInsightTypeLabel = (type: string) => {
   }
 }
 
-const getActionLabel = (actionType: string) => {
+const getActionLabel = (actionType: string, insightType?: string) => {
+  // For habit insights with remind action, show "Set Reminder"
+  if (insightType === 'habit' && actionType === 'remind') {
+    return 'Set Reminder'
+  }
+  
   switch (actionType) {
     case 'open_urls':
       return 'Open Workflow'
@@ -65,15 +81,54 @@ const getActionLabel = (actionType: string) => {
 }
 
 export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
-  const { insights, isLoading, isAnalyzing, error, analyzeBehavior, executeAction } = useInsights()
+  const { insights, isLoading, isAnalyzing, error, analyzeBehavior, executeAction, markCompleted, getSessionTabs, openAndTrackTab, refreshInsights } = useInsights()
   const [executingInsights, setExecutingInsights] = React.useState<Set<string>>(new Set())
+  const [completingInsights, setCompletingInsights] = React.useState<Set<string>>(new Set())
   const [showHistory, setShowHistory] = React.useState(false)
+  
+  // Tab dropdown state for unfinished tasks
+  const [expandedInsightId, setExpandedInsightId] = React.useState<string | null>(null)
+  const [sessionTabs, setSessionTabs] = React.useState<Map<string, SessionTab[]>>(new Map())
+  const [loadingTabs, setLoadingTabs] = React.useState<Set<string>>(new Set())
+  const [openingTabs, setOpeningTabs] = React.useState<Set<string>>(new Set())
+  
+  // Confirmation dialog state
+  const [confirmationData, setConfirmationData] = React.useState<{insightId: string, percentage: number} | null>(null)
 
-  // Separate active and acted upon insights
-  const activeInsights = insights.filter(i => !i.actedUpon)
-  const actedUponInsights = insights.filter(i => i.actedUpon)
+  // Separate insights by status
+  const activeInsights = insights.filter(i => i.status === 'pending' || i.status === 'in_progress')
+  const completedInsights = insights.filter(i => i.status === 'completed')
+  
+  // Setup event listeners for auto-completion
+  React.useEffect(() => {
+    const handleAutoCompleted = async (data: { insightId: string; percentage: number; reason: string }) => {
+      console.log('[Insights] Insight auto-completed:', data)
+      // Refresh insights to show the updated status
+      await refreshInsights()
+    }
+    
+    const handleConfirmationRequest = (data: { insightId: string; percentage: number }) => {
+      console.log('[Insights] Completion confirmation requested:', data)
+      setConfirmationData(data)
+    }
+    
+    window.sidebarAPI.onInsightAutoCompleted(handleAutoCompleted)
+    window.sidebarAPI.onInsightCompletionConfirmationRequest(handleConfirmationRequest)
+    
+    return () => {
+      window.sidebarAPI.removeInsightAutoCompletedListener()
+      window.sidebarAPI.removeInsightCompletionConfirmationRequestListener()
+    }
+  }, [refreshInsights])
 
-  const handleExecuteAction = async (insightId: string) => {
+  const handleExecuteAction = async (insightId: string, insight: any) => {
+    // For abandoned tasks, show the tab dropdown instead of executing directly
+    if (insight.type === 'abandoned' && insight.actionType === 'resume_research') {
+      await handleToggleTabDropdown(insightId)
+      return
+    }
+    
+    // For other insights, execute the action directly
     setExecutingInsights(prev => new Set(prev).add(insightId))
     try {
       const result = await executeAction(insightId)
@@ -92,6 +147,103 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
     }
   }
 
+  const handleToggleTabDropdown = async (insightId: string) => {
+    if (expandedInsightId === insightId) {
+      // Collapse if already expanded
+      setExpandedInsightId(null)
+      return
+    }
+    
+    // Expand and load tabs if not already loaded
+    setExpandedInsightId(insightId)
+    
+    if (!sessionTabs.has(insightId)) {
+      setLoadingTabs(prev => new Set(prev).add(insightId))
+      try {
+        const result = await getSessionTabs(insightId)
+        if (result.success) {
+          setSessionTabs(prev => new Map(prev).set(insightId, result.tabs))
+        } else {
+          console.error('Failed to load tabs:', result.error)
+          alert(`Failed to load tabs: ${result.error}`)
+        }
+      } finally {
+        setLoadingTabs(prev => {
+          const newSet = new Set(prev)
+          newSet.delete(insightId)
+          return newSet
+        })
+      }
+    }
+  }
+
+  const handleOpenTab = async (insightId: string, url: string) => {
+    const tabKey = `${insightId}-${url}`
+    setOpeningTabs(prev => new Set(prev).add(tabKey))
+    try {
+      const result = await openAndTrackTab(insightId, url)
+      if (result.success) {
+        console.log('Tab opened and tracked:', url)
+        if (result.completionPercentage !== undefined) {
+          console.log('Completion percentage:', result.completionPercentage)
+        }
+      } else {
+        console.error('Failed to open tab:', result.error)
+        alert(`Failed: ${result.error}`)
+      }
+    } finally {
+      setOpeningTabs(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(tabKey)
+        return newSet
+      })
+    }
+  }
+
+  const handleMarkCompleted = async (insightId: string) => {
+    setCompletingInsights(prev => new Set(prev).add(insightId))
+    try {
+      const result = await markCompleted(insightId)
+      if (result.success) {
+        console.log('Insight marked as completed:', result.message)
+      } else {
+        console.error('Failed to mark as completed:', result.error)
+        alert(`Failed: ${result.error}`)
+      }
+    } finally {
+      setCompletingInsights(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(insightId)
+        return newSet
+      })
+    }
+  }
+
+  const formatTimeAgo = (dateString: string | undefined): string => {
+    if (!dateString) return ''
+    const date = new Date(dateString)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const diffMins = Math.floor(diffMs / 60000)
+    const diffHours = Math.floor(diffMs / 3600000)
+    const diffDays = Math.floor(diffMs / 86400000)
+    
+    if (diffMins < 1) return 'just now'
+    if (diffMins < 60) return `${diffMins}m ago`
+    if (diffHours < 24) return `${diffHours}h ago`
+    return `${diffDays}d ago`
+  }
+  
+  const handleConfirmCompletion = async (confirm: boolean) => {
+    if (!confirmationData) return
+    
+    if (confirm) {
+      await handleMarkCompleted(confirmationData.insightId)
+    }
+    
+    setConfirmationData(null)
+  }
+
   return (
     <div className="h-full flex flex-col bg-background">
       {/* Header */}
@@ -102,7 +254,7 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
             <h2 className="text-lg font-semibold text-foreground">Proactive Insights</h2>
           </div>
           <p className="text-xs text-muted-foreground mt-1">
-            {activeInsights.length} active{actedUponInsights.length > 0 && `, ${actedUponInsights.length} in history`}
+            {activeInsights.length} active{completedInsights.length > 0 && `, ${completedInsights.length} completed`}
           </p>
         </div>
         <Button
@@ -159,7 +311,7 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
             <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
             <p className="text-sm text-muted-foreground">Loading insights...</p>
           </div>
-        ) : activeInsights.length === 0 && actedUponInsights.length === 0 ? (
+        ) : activeInsights.length === 0 && completedInsights.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 gap-4 text-center px-4">
             <Brain className="w-16 h-16 text-muted-foreground/40" />
             <div>
@@ -206,6 +358,12 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
                           <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                             {getInsightTypeLabel(insight.type)}
                           </span>
+                          {/* Status Badge */}
+                          {insight.status === 'in_progress' && (
+                            <span className="px-2 py-0.5 text-xs font-medium bg-blue-500/20 text-blue-600 dark:text-blue-400 rounded-full">
+                              In Progress
+                            </span>
+                          )}
                           <span className="text-xs text-muted-foreground">
                             Score: {Math.round(insight.relevanceScore * 100)}%
                           </span>
@@ -216,14 +374,20 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
                         <p className="text-sm text-muted-foreground leading-relaxed">
                           {insight.description}
                         </p>
+                        {/* Show last resumed time for in_progress tasks */}
+                        {insight.status === 'in_progress' && insight.lastResumedAt && (
+                          <p className="text-xs text-muted-foreground mt-2">
+                            Last worked on: {formatTimeAgo(insight.lastResumedAt)}
+                          </p>
+                        )}
                       </div>
                     </div>
 
-                    {/* Action Button */}
+                    {/* Action Buttons */}
                     <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border/50">
                       <Button
-                        onClick={() => handleExecuteAction(insight.id)}
-                        disabled={executingInsights.has(insight.id)}
+                        onClick={() => handleExecuteAction(insight.id, insight)}
+                        disabled={executingInsights.has(insight.id) || loadingTabs.has(insight.id)}
                         size="sm"
                         className="flex items-center gap-2"
                       >
@@ -234,27 +398,139 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
                           </>
                         ) : (
                           <>
-                            <span>{getActionLabel(insight.actionType)}</span>
-                            <ArrowRight className="w-3 h-3" />
+                            <span>{getActionLabel(insight.actionType, insight.type)}</span>
+                            {insight.type === 'abandoned' && insight.actionType === 'resume_research' ? (
+                              expandedInsightId === insight.id ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+                            ) : (
+                              <ArrowRight className="w-3 h-3" />
+                            )}
                           </>
                         )}
                       </Button>
-                      <span className="text-xs text-muted-foreground">
+                      {/* Mark Complete button for in_progress abandoned tasks */}
+                      {insight.status === 'in_progress' && insight.type === 'abandoned' && (
+                        <Button
+                          onClick={() => handleMarkCompleted(insight.id)}
+                          disabled={completingInsights.has(insight.id)}
+                          size="sm"
+                          variant="outline"
+                          className="flex items-center gap-2"
+                        >
+                          {completingInsights.has(insight.id) ? (
+                            <>
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              <span>Completing...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Check className="w-3 h-3" />
+                              <span>Mark Complete</span>
+                            </>
+                          )}
+                        </Button>
+                      )}
+                      {/* Discard button for habit insights */}
+                      {insight.type === 'habit' && (
+                        <Button
+                          onClick={() => handleMarkCompleted(insight.id)}
+                          disabled={completingInsights.has(insight.id)}
+                          size="sm"
+                          variant="outline"
+                          className="flex items-center gap-2"
+                        >
+                          {completingInsights.has(insight.id) ? (
+                            <>
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              <span>Discarding...</span>
+                            </>
+                          ) : (
+                            <>
+                              <X className="w-3 h-3" />
+                              <span>Discard</span>
+                            </>
+                          )}
+                        </Button>
+                      )}
+                      <span className="text-xs text-muted-foreground ml-auto">
                         {new Date(insight.createdAt).toLocaleDateString()}
                       </span>
                     </div>
+
+                    {/* Tab Dropdown for abandoned tasks */}
+                    {insight.type === 'abandoned' && expandedInsightId === insight.id && (
+                      <div className="mt-3 pt-3 border-t border-border/50">
+                        {loadingTabs.has(insight.id) ? (
+                          <div className="flex items-center justify-center py-4">
+                            <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                            <span className="ml-2 text-sm text-muted-foreground">Loading tabs...</span>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                                Related Tabs ({sessionTabs.get(insight.id)?.length || 0})
+                              </span>
+                              {insight.openedTabUrls && insight.openedTabUrls.length > 0 && (
+                                <span className="text-xs text-muted-foreground">
+                                  Opened: {insight.openedTabUrls.length} / {sessionTabs.get(insight.id)?.length || 0}
+                                </span>
+                              )}
+                            </div>
+                            <div className="space-y-1 max-h-64 overflow-y-auto">
+                              {sessionTabs.get(insight.id)?.map((tab, idx) => {
+                                const isOpened = insight.openedTabUrls?.includes(tab.url)
+                                const tabKey = `${insight.id}-${tab.url}`
+                                const isOpening = openingTabs.has(tabKey)
+                                
+                                return (
+                                  <button
+                                    key={`${tab.url}-${idx}`}
+                                    onClick={() => handleOpenTab(insight.id, tab.url)}
+                                    disabled={isOpening}
+                                    className={`w-full text-left p-2 rounded border transition-colors ${
+                                      isOpened 
+                                        ? 'bg-green-500/10 border-green-500/20 text-foreground' 
+                                        : 'bg-card border-border hover:bg-card/80'
+                                    }`}
+                                  >
+                                    <div className="flex items-start gap-2">
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2">
+                                          {isOpening ? (
+                                            <Loader2 className="w-3 h-3 animate-spin flex-shrink-0" />
+                                          ) : (
+                                            <ExternalLink className={`w-3 h-3 flex-shrink-0 ${isOpened ? 'text-green-500' : 'text-muted-foreground'}`} />
+                                          )}
+                                          <span className="text-sm font-medium truncate">{tab.title}</span>
+                                        </div>
+                                        <span className="text-xs text-muted-foreground truncate block mt-1">
+                                          {tab.url}
+                                        </span>
+                                      </div>
+                                      {isOpened && (
+                                        <Check className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
+                                      )}
+                                    </div>
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
             )}
 
-            {/* Acted Upon Insights (History) */}
-            {showHistory && actedUponInsights.length > 0 && (
+            {/* Completed Insights (History) */}
+            {showHistory && completedInsights.length > 0 && (
               <div className="space-y-4">
                 <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-                  History ({actedUponInsights.length})
+                  Completed ({completedInsights.length})
                 </h3>
-                {actedUponInsights.map((insight) => (
+                {completedInsights.map((insight) => (
                   <div
                     key={insight.id}
                     className="p-4 rounded-lg border border-border/50 bg-card/30 opacity-60"
@@ -295,9 +571,9 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
             )}
 
             {/* Empty state for active insights */}
-            {activeInsights.length === 0 && actedUponInsights.length > 0 && (
+            {activeInsights.length === 0 && completedInsights.length > 0 && (
               <div className="text-center py-8 mb-6">
-                <p className="text-sm text-muted-foreground">No active insights. All insights have been acted upon.</p>
+                <p className="text-sm text-muted-foreground">No active insights. All insights have been completed.</p>
                 <Button
                   onClick={analyzeBehavior}
                   disabled={isAnalyzing}
@@ -321,6 +597,37 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
           </>
         )}
       </div>
+      
+      {/* Confirmation Dialog for Completion */}
+      {confirmationData && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-background border border-border rounded-lg shadow-xl max-w-md w-full p-6">
+            <h3 className="text-lg font-semibold text-foreground mb-2">
+              Mark Task as Complete?
+            </h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              You've opened {Math.round(confirmationData.percentage * 100)}% of the tabs related to this task. 
+              Would you like to mark it as complete?
+            </p>
+            <div className="flex items-center gap-3">
+              <Button
+                onClick={() => handleConfirmCompletion(true)}
+                className="flex-1"
+              >
+                <Check className="w-4 h-4 mr-2" />
+                Mark Complete
+              </Button>
+              <Button
+                onClick={() => handleConfirmCompletion(false)}
+                variant="outline"
+                className="flex-1"
+              >
+                Not Yet
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

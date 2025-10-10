@@ -12,8 +12,28 @@ interface ProactiveInsight {
   relevanceScore: number
   createdAt: string  // ISO date string (serialized by IPC)
   triggeredAt?: string  // ISO date string (serialized by IPC)
+  
+  // Status tracking
+  status: 'pending' | 'in_progress' | 'completed'
+  
+  // Legacy support (deprecated)
   actedUpon?: boolean
   actedUponAt?: string  // ISO date string (serialized by IPC)
+  
+  // Progress tracking for abandoned tasks
+  lastResumedAt?: string  // ISO date string (serialized by IPC)
+  linkedSessionIds?: string[]  // Track all sessions related to this insight
+  completionProgress?: number  // 0.0 - 1.0
+  
+  // Tracking for tab reopening
+  openedTabUrls?: string[]  // URLs that were reopened by the user
+}
+
+interface SessionTab {
+  url: string
+  title: string
+  timestamp: string
+  sessionId: string
 }
 
 interface InsightsContextType {
@@ -24,6 +44,9 @@ interface InsightsContextType {
   analyzeBehavior: () => Promise<void>
   refreshInsights: () => Promise<void>
   executeAction: (insightId: string) => Promise<{ success: boolean; message?: string; error?: string }>
+  markCompleted: (insightId: string) => Promise<{ success: boolean; message?: string; error?: string }>
+  getSessionTabs: (insightId: string) => Promise<{ success: boolean; tabs: SessionTab[]; totalTabs: number; openedTabs: string[]; error?: string }>
+  openAndTrackTab: (insightId: string, url: string) => Promise<{ success: boolean; message?: string; completionPercentage?: number; error?: string }>
 }
 
 const InsightsContext = createContext<InsightsContextType | undefined>(undefined)
@@ -77,9 +100,9 @@ export const InsightsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     try {
       const result = await window.sidebarAPI.executeInsightAction(insightId)
       
-      // Remove the insight after successful execution
+      // Reload insights after execution to get updated status
       if (result.success) {
-        setInsights(prev => prev.filter(i => i.id !== insightId))
+        await loadInsights()
       }
       
       return result
@@ -87,7 +110,49 @@ export const InsightsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       console.error('Failed to execute action:', err)
       return { success: false, error: 'Failed to execute action' }
     }
+  }, [loadInsights])
+
+  const markCompleted = useCallback(async (insightId: string) => {
+    try {
+      const result = await window.sidebarAPI.markInsightCompleted(insightId)
+      
+      // Reload insights after completion
+      if (result.success) {
+        await loadInsights()
+      }
+      
+      return result
+    } catch (err) {
+      console.error('Failed to mark as completed:', err)
+      return { success: false, error: 'Failed to mark as completed' }
+    }
+  }, [loadInsights])
+
+  const getSessionTabs = useCallback(async (insightId: string) => {
+    try {
+      const result = await window.sidebarAPI.getInsightSessionTabs(insightId)
+      return result
+    } catch (err) {
+      console.error('Failed to get session tabs:', err)
+      return { success: false, tabs: [], totalTabs: 0, openedTabs: [], error: 'Failed to get session tabs' }
+    }
   }, [])
+
+  const openAndTrackTab = useCallback(async (insightId: string, url: string) => {
+    try {
+      const result = await window.sidebarAPI.openAndTrackTab(insightId, url)
+      
+      // Reload insights to update the opened tabs count
+      if (result.success) {
+        await loadInsights()
+      }
+      
+      return result
+    } catch (err) {
+      console.error('Failed to open and track tab:', err)
+      return { success: false, error: 'Failed to open and track tab' }
+    }
+  }, [loadInsights])
 
   return (
     <InsightsContext.Provider
@@ -99,6 +164,9 @@ export const InsightsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         analyzeBehavior,
         refreshInsights,
         executeAction,
+        markCompleted,
+        getSessionTabs,
+        openAndTrackTab,
       }}
     >
       {children}

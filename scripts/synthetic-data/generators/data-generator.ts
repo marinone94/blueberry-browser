@@ -21,6 +21,7 @@ import {
 } from '../utils/realistic-timing';
 import { PatternGenerator } from './pattern-generator';
 import type { RawActivityData } from '../../../src/main/ActivityTypes';
+import pLimit from 'p-limit';
 
 export interface GeneratorOptions {
   verbose?: boolean;
@@ -46,7 +47,9 @@ export class SyntheticDataGenerator {
   constructor(config: GeneratorConfig, options: GeneratorOptions = {}) {
     this.config = config;
     this.options = options;
-    this.llm = new LLMContentGenerator(options.verbose);
+    // Use config concurrency or default to 10
+    const concurrency = config.concurrency?.llmCalls || 50;
+    this.llm = new LLMContentGenerator(options.verbose, concurrency);
     this.patternGenerator = new PatternGenerator(this.llm);
     this.sessionId = this.generateSessionId();
   }
@@ -154,6 +157,9 @@ export class SyntheticDataGenerator {
       // Convert pattern activities to raw activities
       let currentTime = sessionStart.getTime();
       
+      // First pass: create raw activities
+      const activitiesForAnalysis: Array<{ rawActivity: RawActivityData; generatedActivity: GeneratedActivity }> = [];
+      
       for (let i = 0; i < patternActivities.length; i++) {
         const activity = patternActivities[i];
         const nextActivity = patternActivities[i + 1];
@@ -181,23 +187,39 @@ export class SyntheticDataGenerator {
         this.stats.totalActivities++;
         this.stats.uniqueUrls.add(activity.url);
 
-        // Generate content analysis if needed
+        // Mark for content analysis if needed
         if (
           this.config.contentAnalysis.generate &&
           activity.type === 'page_visit' &&
           Math.random() < this.config.contentAnalysis.percentage
         ) {
-          const analysis = await this.generateContentAnalysis(rawActivity, activity);
-          if (analysis) {
-            dailyAnalyses.push(analysis);
-            this.stats.contentAnalyses++;
-          }
+          activitiesForAnalysis.push({ rawActivity, generatedActivity: activity });
         }
 
         // Advance time by dwell time for page interactions
         if (activity.type === 'page_interaction') {
           currentTime += activity.data.timeOnPage || 10000;
         }
+      }
+
+      // Second pass: parallelize content analysis generation
+      if (activitiesForAnalysis.length > 0) {
+        const concurrency = this.config.concurrency?.contentAnalysis || 5;
+        const limit = pLimit(concurrency);
+        const analyses = await Promise.all(
+          activitiesForAnalysis.map(({ rawActivity, generatedActivity }) => 
+            limit(async () => {
+              const analysis = await this.generateContentAnalysis(rawActivity, generatedActivity);
+              if (analysis) {
+                this.stats.contentAnalyses++;
+              }
+              return analysis;
+            })
+          )
+        );
+        
+        // Filter out null results
+        dailyAnalyses.push(...analyses.filter(a => a !== null));
       }
     }
 

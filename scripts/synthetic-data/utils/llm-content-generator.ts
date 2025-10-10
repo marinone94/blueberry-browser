@@ -5,6 +5,7 @@
 import { generateText } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import type { ContentAnalysisData, RealisticURL } from '../types';
+import pLimit from 'p-limit';
 
 /**
  * Generate realistic page content using LLM
@@ -12,9 +13,11 @@ import type { ContentAnalysisData, RealisticURL } from '../types';
 export class LLMContentGenerator {
   private cache: Map<string, any> = new Map();
   private verbose: boolean;
+  private limit: ReturnType<typeof pLimit>;
 
-  constructor(verbose = false) {
+  constructor(verbose = false, concurrency = 10) {
     this.verbose = verbose;
+    this.limit = pLimit(concurrency);
   }
 
   /**
@@ -26,7 +29,13 @@ export class LLMContentGenerator {
       return this.cache.get(cacheKey);
     }
 
-    try {
+    return this.limit(async () => {
+      // Double-check cache after acquiring limit slot (avoid duplicate calls)
+      if (this.cache.has(cacheKey)) {
+        return this.cache.get(cacheKey);
+      }
+
+      try {
       const prompt = `Generate a realistic URL, title, and brand for a webpage.
 
 Category: ${category}
@@ -70,10 +79,11 @@ Respond in JSON format:
       }
 
       return urlData;
-    } catch (error) {
-      console.error('Failed to generate URL with LLM, using fallback:', error);
-      return this.fallbackURL(category, subcategory);
-    }
+      } catch (error) {
+        console.error('Failed to generate URL with LLM, using fallback:', error);
+        return this.fallbackURL(category, subcategory);
+      }
+    });
   }
 
   /**
@@ -85,7 +95,13 @@ Respond in JSON format:
       return this.cache.get(cacheKey);
     }
 
-    try {
+    return this.limit(async () => {
+      // Double-check cache after acquiring limit slot
+      if (this.cache.has(cacheKey)) {
+        return this.cache.get(cacheKey);
+      }
+
+      try {
       const prompt = `Generate realistic webpage content for analysis.
 
 URL: ${url}
@@ -142,10 +158,11 @@ Respond in JSON format:
       }
 
       return contentAnalysis;
-    } catch (error) {
-      console.error('Failed to generate content analysis with LLM:', error);
-      return this.fallbackContentAnalysis(url, title, category, subcategory);
-    }
+      } catch (error) {
+        console.error('Failed to generate content analysis with LLM:', error);
+        return this.fallbackContentAnalysis(url, title, category, subcategory);
+      }
+    });
   }
 
   /**
@@ -159,7 +176,14 @@ Respond in JSON format:
       return Math.random() > 0.5 ? cached : await this.generateSearchQuery(category, intent);
     }
 
-    try {
+    return this.limit(async () => {
+      // Double-check cache after acquiring limit slot
+      if (this.cache.has(cacheKey)) {
+        const cached = this.cache.get(cacheKey);
+        return Math.random() > 0.5 ? cached : cached + ' ' + Math.random().toString(36).substr(2, 3);
+      }
+
+      try {
       const prompt = `Generate a realistic search query.
 
 Category: ${category}
@@ -187,17 +211,19 @@ Query:`;
       }
 
       return query;
-    } catch (error) {
-      console.error('Failed to generate search query:', error);
-      return `${category} ${intent}`;
-    }
+      } catch (error) {
+        console.error('Failed to generate search query:', error);
+        return `${category} ${intent}`;
+      }
+    });
   }
 
   /**
    * Generate a sequence of related URLs for a browsing journey
    */
   async generateBrowsingJourney(intent: string, steps: number): Promise<RealisticURL[]> {
-    try {
+    return this.limit(async () => {
+      try {
       const prompt = `Generate a realistic browsing journey with ${steps} steps.
 
 User Intent: ${intent}
@@ -241,15 +267,16 @@ Respond in JSON format as an array:
         subcategory: item.subcategory,
         brand: item.brand || undefined,
       }));
-    } catch (error) {
-      console.error('Failed to generate browsing journey:', error);
-      // Fallback to simple generation
-      return Promise.all(
-        Array.from({ length: steps }).map((_, i) =>
-          this.generateURL('general', 'web', `${intent} step ${i + 1}`)
-        )
-      );
-    }
+      } catch (error) {
+        console.error('Failed to generate browsing journey:', error);
+        // Fallback to simple generation
+        return Promise.all(
+          Array.from({ length: steps }).map((_, i) =>
+            this.generateURL('general', 'web', `${intent} step ${i + 1}`)
+          )
+        );
+      }
+    });
   }
 
   /**

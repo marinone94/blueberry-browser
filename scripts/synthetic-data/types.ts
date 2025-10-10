@@ -22,6 +22,10 @@ export interface GeneratorConfig {
     peakHours?: number[]; // Hours with more activity (0-23)
     weekendReduction?: number; // 0-1, reduce weekend activity by this factor
   };
+  concurrency?: {
+    llmCalls?: number; // Max concurrent LLM API calls (default: 10)
+    contentAnalysis?: number; // Max concurrent content analyses (default: 5)
+  };
 }
 
 export interface PatternConfig {

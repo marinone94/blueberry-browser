@@ -632,6 +632,63 @@ export class UserDataManager {
   }
 
   /**
+   * Populate browsing history from raw activity data
+   * Useful for reconstructing history from synthetic data
+   */
+  async populateHistoryFromActivities(userId: string): Promise<number> {
+    console.log(`[UserDataManager] Populating browsing history from activities for user ${userId}`);
+    
+    try {
+      // Load all activity files
+      const activityDir = this.getRawActivityDir(userId);
+      const files = await fs.readdir(activityDir);
+      const jsonFiles = files.filter(f => f.endsWith('.json')).sort();
+      
+      let processedCount = 0;
+      const existingHistory = await this.loadBrowsingHistory(userId);
+      const existingUrls = new Set(existingHistory.map(h => `${h.url}|${new Date(h.visitedAt).getTime()}`));
+      
+      for (const file of jsonFiles) {
+        const filePath = join(activityDir, file);
+        const content = await fs.readFile(filePath, 'utf-8');
+        const activities = JSON.parse(content) as RawActivityData[];
+        
+        // Process page_visit activities
+        for (const activity of activities) {
+          if (activity.type === 'page_visit' && activity.data.url && activity.data.title) {
+            const timestamp = new Date(activity.timestamp).getTime();
+            const key = `${activity.data.url}|${timestamp}`;
+            
+            // Skip if already exists (avoid duplicates)
+            if (existingUrls.has(key)) {
+              continue;
+            }
+            
+            // Add to history
+            const entry: Omit<BrowsingHistoryEntry, 'id'> = {
+              url: activity.data.url,
+              title: activity.data.title,
+              visitedAt: new Date(activity.timestamp),
+              favicon: undefined,
+              analysisId: undefined
+            };
+            
+            await this.addHistoryEntry(userId, entry);
+            existingUrls.add(key);
+            processedCount++;
+          }
+        }
+      }
+      
+      console.log(`[UserDataManager] Added ${processedCount} history entries from activities`);
+      return processedCount;
+    } catch (error) {
+      console.error(`[UserDataManager] Error populating history from activities:`, error);
+      return 0;
+    }
+  }
+
+  /**
    * Behavioral Profile Management (dummy implementation for now)
    */
   async saveBehavioralProfile(userId: string, profile: BehavioralProfile): Promise<void> {
