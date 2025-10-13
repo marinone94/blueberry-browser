@@ -16,7 +16,16 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
-  ExternalLink
+  ExternalLink,
+  Trash2,
+  Edit2,
+  Play,
+  Save,
+  Package,
+  Filter,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react'
 
 interface SessionTab {
@@ -29,6 +38,8 @@ interface SessionTab {
 interface InsightsProps {
   onClose: () => void
 }
+
+type InsightsTab = 'patterns' | 'agents'
 
 const getInsightIcon = (type: string) => {
   switch (type) {
@@ -81,10 +92,21 @@ const getActionLabel = (actionType: string, insightType?: string) => {
 }
 
 export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
-  const { insights, isLoading, isAnalyzing, error, analyzeBehavior, executeAction, markCompleted, getSessionTabs, openAndTrackTab, refreshInsights } = useInsights()
+  const { 
+    insights, isLoading, isAnalyzing, error, analyzeBehavior, executeAction, markCompleted, getSessionTabs, openAndTrackTab, refreshInsights,
+    savedWorkflows, isLoadingWorkflows, saveAsAgent, executeWorkflow, deleteWorkflow, renameWorkflow
+  } = useInsights()
   const [executingInsights, setExecutingInsights] = React.useState<Set<string>>(new Set())
   const [completingInsights, setCompletingInsights] = React.useState<Set<string>>(new Set())
   const [showHistory, setShowHistory] = React.useState(false)
+  
+  // Tab navigation state
+  const [activeTab, setActiveTab] = React.useState<InsightsTab>('patterns')
+  
+  // Filter and sort state for patterns tab
+  const [filterType, setFilterType] = React.useState<string>('all')
+  const [sortBy, setSortBy] = React.useState<'name' | 'score' | 'time'>('time')
+  const [sortOrder, setSortOrder] = React.useState<'asc' | 'desc'>('desc')
   
   // Tab dropdown state for unfinished tasks
   const [expandedInsightId, setExpandedInsightId] = React.useState<string | null>(null)
@@ -92,12 +114,44 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
   const [loadingTabs, setLoadingTabs] = React.useState<Set<string>>(new Set())
   const [openingTabs, setOpeningTabs] = React.useState<Set<string>>(new Set())
   
+  // Workflow automation state
+  const [savingWorkflows, setSavingWorkflows] = React.useState<Set<string>>(new Set())
+  const [executingWorkflows, setExecutingWorkflows] = React.useState<Set<string>>(new Set())
+  const [deletingWorkflows, setDeletingWorkflows] = React.useState<Set<string>>(new Set())
+  const [renamingWorkflowId, setRenamingWorkflowId] = React.useState<string | null>(null)
+  const [renameValue, setRenameValue] = React.useState('')
+  const [expandedWorkflowId, setExpandedWorkflowId] = React.useState<string | null>(null)
+  
   // Confirmation dialog state
   const [confirmationData, setConfirmationData] = React.useState<{insightId: string, percentage: number} | null>(null)
 
   // Separate insights by status
-  const activeInsights = insights.filter(i => i.status === 'pending' || i.status === 'in_progress')
+  const allActiveInsights = insights.filter(i => i.status === 'pending' || i.status === 'in_progress')
   const completedInsights = insights.filter(i => i.status === 'completed')
+  
+  // Apply filtering
+  let activeInsights = filterType !== 'all' 
+    ? allActiveInsights.filter(i => i.type === filterType)
+    : allActiveInsights
+  
+  // Apply sorting
+  activeInsights = [...activeInsights].sort((a, b) => {
+    let comparison = 0
+    
+    switch (sortBy) {
+      case 'name':
+        comparison = a.title.localeCompare(b.title)
+        break
+      case 'score':
+        comparison = a.relevanceScore - b.relevanceScore
+        break
+      case 'time':
+        comparison = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        break
+    }
+    
+    return sortOrder === 'asc' ? comparison : -comparison
+  })
   
   // Setup event listeners for auto-completion
   React.useEffect(() => {
@@ -244,6 +298,78 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
     setConfirmationData(null)
   }
 
+  // Workflow automation handlers
+  const handleSaveAsAgent = async (insightId: string) => {
+    setSavingWorkflows(prev => new Set(prev).add(insightId))
+    try {
+      const result = await saveAsAgent(insightId)
+      if (result.success) {
+        alert(`Workflow saved! Access it from the "My Agents" tab.`)
+        setActiveTab('agents')
+      } else {
+        alert(`Failed to save: ${result.error}`)
+      }
+    } finally {
+      setSavingWorkflows(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(insightId)
+        return newSet
+      })
+    }
+  }
+
+  const handleExecuteWorkflow = async (workflowId: string) => {
+    setExecutingWorkflows(prev => new Set(prev).add(workflowId))
+    try {
+      const result = await executeWorkflow(workflowId)
+      if (result.success) {
+        console.log('Workflow executed:', result.message)
+      } else {
+        alert(`Failed: ${result.error}`)
+      }
+    } finally {
+      setExecutingWorkflows(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(workflowId)
+        return newSet
+      })
+    }
+  }
+
+  const handleDeleteWorkflow = async (workflowId: string) => {
+    if (!confirm('Delete this workflow?')) return
+    
+    setDeletingWorkflows(prev => new Set(prev).add(workflowId))
+    try {
+      const result = await deleteWorkflow(workflowId)
+      if (!result.success) {
+        alert(`Failed: ${result.error}`)
+      }
+    } finally {
+      setDeletingWorkflows(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(workflowId)
+        return newSet
+      })
+    }
+  }
+
+  const handleRenameWorkflow = async (workflowId: string) => {
+    if (!renameValue.trim()) return
+    
+    try {
+      const result = await renameWorkflow(workflowId, renameValue.trim())
+      if (result.success) {
+        setRenamingWorkflowId(null)
+        setRenameValue('')
+      } else {
+        alert(`Failed: ${result.error}`)
+      }
+    } catch (err) {
+      console.error('Failed to rename:', err)
+    }
+  }
+
   return (
     <div className="h-full flex flex-col bg-background">
       {/* Header */}
@@ -254,7 +380,11 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
             <h2 className="text-lg font-semibold text-foreground">Proactive Insights</h2>
           </div>
           <p className="text-xs text-muted-foreground mt-1">
-            {activeInsights.length} active{completedInsights.length > 0 && `, ${completedInsights.length} completed`}
+            {activeInsights.length} active
+            {filterType !== 'all' && allActiveInsights.length !== activeInsights.length && (
+              <span> (of {allActiveInsights.length})</span>
+            )}
+            {completedInsights.length > 0 && `, ${completedInsights.length} completed`}
           </p>
         </div>
         <Button
@@ -267,36 +397,120 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
         </Button>
       </div>
 
-      {/* Actions Bar */}
-      <div className="flex items-center gap-2 p-3 border-b border-border bg-muted/30">
-        <Button
-          onClick={analyzeBehavior}
-          disabled={isAnalyzing}
-          size="sm"
-          className="flex items-center gap-2"
+      {/* Tab Navigation */}
+      <div className="flex items-center gap-1 px-3 pt-3 border-b border-border bg-muted/30">
+        <button
+          onClick={() => setActiveTab('patterns')}
+          className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+            activeTab === 'patterns'
+              ? 'bg-background text-foreground border border-b-0 border-border'
+              : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
+          }`}
         >
-          {isAnalyzing ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              <span>Analyzing...</span>
-            </>
-          ) : (
-            <>
-              <Sparkles className="w-4 h-4" />
-              <span>Analyze Behavior</span>
-            </>
-          )}
-        </Button>
-        <Button
-          onClick={() => setShowHistory(!showHistory)}
-          variant="outline"
-          size="sm"
-          className="flex items-center gap-2"
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4" />
+            <span>Detected Patterns</span>
+          </div>
+        </button>
+        <button
+          onClick={() => setActiveTab('agents')}
+          className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+            activeTab === 'agents'
+              ? 'bg-background text-foreground border border-b-0 border-border'
+              : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
+          }`}
         >
-          <History className="w-4 h-4" />
-          <span>{showHistory ? 'Hide' : 'Show'} History</span>
-        </Button>
+          <div className="flex items-center gap-2">
+            <Package className="w-4 h-4" />
+            <span>My Agents</span>
+            {savedWorkflows.length > 0 && (
+              <span className="px-1.5 py-0.5 text-xs bg-primary/20 text-primary rounded-full">
+                {savedWorkflows.length}
+              </span>
+            )}
+          </div>
+        </button>
       </div>
+
+      {/* Actions Bar - Show different actions based on active tab */}
+      {activeTab === 'patterns' && (
+        <>
+          <div className="flex items-center gap-2 p-3 border-b border-border bg-muted/30">
+            <Button
+              onClick={analyzeBehavior}
+              disabled={isAnalyzing}
+              size="sm"
+              className="flex items-center gap-2"
+            >
+              {isAnalyzing ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Analyzing...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  <span>Analyze Behavior</span>
+                </>
+              )}
+            </Button>
+            <Button
+              onClick={() => setShowHistory(!showHistory)}
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-2"
+            >
+              <History className="w-4 h-4" />
+              <span>{showHistory ? 'Hide' : 'Show'} History</span>
+            </Button>
+          </div>
+          
+          {/* Filter and Sort Controls */}
+          <div className="flex items-center gap-2 p-3 border-b border-border bg-muted/20">
+            <div className="flex items-center gap-2">
+              <Filter className="w-4 h-4 text-muted-foreground" />
+              <select
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value)}
+                className="px-2 py-1 text-sm bg-background border border-border rounded-md text-foreground"
+              >
+                <option value="all">All Types</option>
+                <option value="workflow">Workflow</option>
+                <option value="research">Research</option>
+                <option value="abandoned">Unfinished Task</option>
+                <option value="habit">Browsing Habit</option>
+              </select>
+            </div>
+            
+            <div className="flex items-center gap-2 ml-auto">
+              <ArrowUpDown className="w-4 h-4 text-muted-foreground" />
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as 'name' | 'score' | 'time')}
+                className="px-2 py-1 text-sm bg-background border border-border rounded-md text-foreground"
+              >
+                <option value="time">Time</option>
+                <option value="name">Name</option>
+                <option value="score">Score</option>
+              </select>
+              
+              <Button
+                onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                variant="outline"
+                size="sm"
+                className="flex items-center gap-1 px-2"
+                title={sortOrder === 'asc' ? 'Ascending' : 'Descending'}
+              >
+                {sortOrder === 'asc' ? (
+                  <ArrowUp className="w-4 h-4" />
+                ) : (
+                  <ArrowDown className="w-4 h-4" />
+                )}
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4">
@@ -306,42 +520,45 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
           </div>
         )}
 
-        {isLoading ? (
-          <div className="flex flex-col items-center justify-center h-64 gap-3">
-            <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">Loading insights...</p>
-          </div>
-        ) : activeInsights.length === 0 && completedInsights.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-64 gap-4 text-center px-4">
-            <Brain className="w-16 h-16 text-muted-foreground/40" />
-            <div>
-              <h3 className="text-lg font-semibold text-foreground mb-2">No Insights Yet</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                Click "Analyze Behavior" to discover patterns in your browsing activity and get personalized suggestions.
-              </p>
-              <Button
-                onClick={analyzeBehavior}
-                disabled={isAnalyzing}
-                className="flex items-center gap-2"
-              >
-                {isAnalyzing ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Analyzing...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4 h-4" />
-                    <span>Analyze Now</span>
-                  </>
-                )}
-              </Button>
-            </div>
-          </div>
-        ) : (
+        {/* Detected Patterns Tab */}
+        {activeTab === 'patterns' && (
           <>
-            {/* Active Insights */}
-            {activeInsights.length > 0 && (
+            {isLoading ? (
+              <div className="flex flex-col items-center justify-center h-64 gap-3">
+                <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">Loading insights...</p>
+              </div>
+            ) : activeInsights.length === 0 && completedInsights.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-64 gap-4 text-center px-4">
+                <Brain className="w-16 h-16 text-muted-foreground/40" />
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground mb-2">No Insights Yet</h3>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Click "Analyze Behavior" to discover patterns in your browsing activity and get personalized suggestions.
+                  </p>
+                  <Button
+                    onClick={analyzeBehavior}
+                    disabled={isAnalyzing}
+                    className="flex items-center gap-2"
+                  >
+                    {isAnalyzing ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Analyzing...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4" />
+                        <span>Analyze Now</span>
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Active Insights */}
+                {activeInsights.length > 0 && (
               <div className="space-y-4 mb-6">
                 {activeInsights.map((insight) => (
                   <div
@@ -425,6 +642,28 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
                             <>
                               <Check className="w-3 h-3" />
                               <span>Mark Complete</span>
+                            </>
+                          )}
+                        </Button>
+                      )}
+                      {/* Save as Agent button for workflow insights */}
+                      {insight.type === 'workflow' && insight.actionType === 'open_urls' && (
+                        <Button
+                          onClick={() => handleSaveAsAgent(insight.id)}
+                          disabled={savingWorkflows.has(insight.id)}
+                          size="sm"
+                          variant="outline"
+                          className="flex items-center gap-2"
+                        >
+                          {savingWorkflows.has(insight.id) ? (
+                            <>
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              <span>Saving...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Save className="w-3 h-3" />
+                              <span>Save as Agent</span>
                             </>
                           )}
                         </Button>
@@ -571,7 +810,21 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
             )}
 
             {/* Empty state for active insights */}
-            {activeInsights.length === 0 && completedInsights.length > 0 && (
+            {activeInsights.length === 0 && allActiveInsights.length > 0 && filterType !== 'all' && (
+              <div className="text-center py-8 mb-6">
+                <p className="text-sm text-muted-foreground mb-2">No {filterType} patterns found.</p>
+                <Button
+                  onClick={() => setFilterType('all')}
+                  variant="outline"
+                  size="sm"
+                  className="mt-2"
+                >
+                  Clear Filter
+                </Button>
+              </div>
+            )}
+            
+            {activeInsights.length === 0 && allActiveInsights.length === 0 && completedInsights.length > 0 && (
               <div className="text-center py-8 mb-6">
                 <p className="text-sm text-muted-foreground">No active insights. All insights have been completed.</p>
                 <Button
@@ -592,6 +845,184 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
                     </>
                   )}
                 </Button>
+              </div>
+            )}
+          </>
+        )}
+        </>
+        )}
+
+        {/* My Agents Tab */}
+        {activeTab === 'agents' && (
+          <>
+            {isLoadingWorkflows ? (
+              <div className="flex flex-col items-center justify-center h-64 gap-3">
+                <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">Loading agents...</p>
+              </div>
+            ) : savedWorkflows.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-64 gap-4 text-center px-4">
+                <Package className="w-16 h-16 text-muted-foreground/40" />
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground mb-2">No Agents Yet</h3>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Save detected workflows as agents for quick access anytime.
+                  </p>
+                  <Button
+                    onClick={() => setActiveTab('patterns')}
+                    variant="outline"
+                    className="flex items-center gap-2"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    <span>Go to Detected Patterns</span>
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {savedWorkflows.map((workflow) => (
+                  <div
+                    key={workflow.id}
+                    className="p-4 rounded-lg border-2 border-purple-500/30 bg-gradient-to-br from-purple-500/5 to-blue-500/5 hover:from-purple-500/10 hover:to-blue-500/10 transition-colors"
+                  >
+                    {/* Workflow Header */}
+                    <div className="flex items-start gap-3 mb-3">
+                      <div className="mt-0.5">
+                        <Zap className="w-5 h-5 text-purple-500" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          {renamingWorkflowId === workflow.id ? (
+                            <input
+                              type="text"
+                              value={renameValue}
+                              onChange={(e) => setRenameValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleRenameWorkflow(workflow.id)
+                                if (e.key === 'Escape') {
+                                  setRenamingWorkflowId(null)
+                                  setRenameValue('')
+                                }
+                              }}
+                              onBlur={() => handleRenameWorkflow(workflow.id)}
+                              className="flex-1 px-2 py-1 text-sm font-semibold bg-background border border-border rounded"
+                              autoFocus
+                            />
+                          ) : (
+                            <h3 className="text-sm font-semibold text-foreground">
+                              {workflow.name}
+                            </h3>
+                          )}
+                          {workflow.useCount > 0 && (
+                            <span className="px-2 py-0.5 text-xs font-medium bg-purple-500/20 text-purple-600 dark:text-purple-400 rounded-full">
+                              Used {workflow.useCount} {workflow.useCount === 1 ? 'time' : 'times'}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground leading-relaxed mb-2">
+                          {workflow.description}
+                        </p>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span>{workflow.steps.length} steps</span>
+                          <span>•</span>
+                          {workflow.lastUsed ? (
+                            <span>Last used: {formatTimeAgo(workflow.lastUsed)}</span>
+                          ) : (
+                            <span>Never used</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Steps Preview - Expandable */}
+                    {expandedWorkflowId === workflow.id && (
+                      <div className="mb-3 p-3 bg-background/50 rounded border border-border">
+                        <div className="space-y-2">
+                          {workflow.steps.slice(0, 5).map((step, index) => (
+                            <div key={index} className="flex items-center gap-2 text-xs">
+                              <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/20 text-primary flex items-center justify-center font-medium">
+                                {index + 1}
+                              </span>
+                              <span className="text-muted-foreground truncate flex-1">
+                                {step.title || step.url}
+                              </span>
+                              <ExternalLink className="w-3 h-3 text-muted-foreground/50 flex-shrink-0" />
+                            </div>
+                          ))}
+                          {workflow.steps.length > 5 && (
+                            <p className="text-xs text-muted-foreground pl-7">
+                              +{workflow.steps.length - 5} more steps
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Action Buttons */}
+                    <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border/50">
+                      <Button
+                        onClick={() => handleExecuteWorkflow(workflow.id)}
+                        disabled={executingWorkflows.has(workflow.id)}
+                        size="sm"
+                        className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700"
+                      >
+                        {executingWorkflows.has(workflow.id) ? (
+                          <>
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            <span>Executing...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Play className="w-3 h-3" />
+                            <span>Execute</span>
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        onClick={() => setExpandedWorkflowId(expandedWorkflowId === workflow.id ? null : workflow.id)}
+                        size="sm"
+                        variant="outline"
+                        className="flex items-center gap-2"
+                      >
+                        {expandedWorkflowId === workflow.id ? (
+                          <>
+                            <ChevronUp className="w-3 h-3" />
+                            <span>Hide Steps</span>
+                          </>
+                        ) : (
+                          <>
+                            <ChevronDown className="w-3 h-3" />
+                            <span>Show Steps</span>
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        onClick={() => {
+                          setRenamingWorkflowId(workflow.id)
+                          setRenameValue(workflow.name)
+                        }}
+                        size="sm"
+                        variant="ghost"
+                        className="w-8 h-8 p-0"
+                      >
+                        <Edit2 className="w-3 h-3" />
+                      </Button>
+                      <Button
+                        onClick={() => handleDeleteWorkflow(workflow.id)}
+                        disabled={deletingWorkflows.has(workflow.id)}
+                        size="sm"
+                        variant="ghost"
+                        className="w-8 h-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                      >
+                        {deletingWorkflows.has(workflow.id) ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-3 h-3" />
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </>

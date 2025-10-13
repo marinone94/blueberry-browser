@@ -109,6 +109,25 @@ interface ProactiveInsight {
   openedTabUrls?: string[];  // URLs that were reopened by the user
 }
 
+interface SavedWorkflow {
+  id: string;
+  userId: string;
+  name: string;
+  description: string;
+  createdAt: string;  // ISO date string (serialized by IPC)
+  createdFrom: string;
+  steps: Array<{
+    url: string;
+    title: string;
+    category: string;
+    subcategory: string;
+  }>;
+  lastUsed: string | null;  // ISO date string (serialized by IPC)
+  useCount: number;
+  isPinned?: boolean;
+  tags?: string[];
+}
+
 interface SessionTab {
   url: string;
   title: string;
@@ -205,6 +224,13 @@ interface SidebarAPI {
   executeReminderAction: (reminderId: string) => Promise<{success: boolean, message?: string, error?: string}>;
   onReminderSet: (callback: (data: any) => void) => void;
   removeReminderSetListener: () => void;
+  
+  // Workflow automation
+  saveWorkflowAsAgent: (insightId: string, customName?: string) => Promise<{success: boolean, workflow?: SavedWorkflow, error?: string}>;
+  getSavedWorkflows: () => Promise<SavedWorkflow[]>;
+  executeWorkflow: (workflowId: string) => Promise<{success: boolean, message?: string, error?: string}>;
+  deleteWorkflow: (workflowId: string) => Promise<{success: boolean, error?: string}>;
+  renameWorkflow: (workflowId: string, newName: string) => Promise<{success: boolean, error?: string}>;
   
   // Listen for insight auto-completion events
   onInsightAutoCompleted: (callback: (data: { insightId: string; percentage: number; reason: string }) => void) => void;

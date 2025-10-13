@@ -32,6 +32,9 @@ export class EventManager {
     // Proactive insights events
     this.handleInsightsEvents();
 
+    // Workflow automation events
+    this.handleWorkflowAutomationEvents();
+
     // Activity tracking events
     this.handleActivityTrackingEvents();
 
@@ -841,6 +844,7 @@ export class EventManager {
   }
 
   private handleInsightsEvents(): void {
+
     // Analyze user behavior and generate insights
     ipcMain.handle("analyze-behavior", async () => {
       const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
@@ -1166,6 +1170,87 @@ export class EventManager {
       } catch (error) {
         console.error('[EventManager] Failed to get tab completion percentage:', error);
         return { success: false, error: 'Failed to get completion percentage', percentage: 0 };
+      }
+    });
+  }
+
+  private handleWorkflowAutomationEvents(): void {
+    // Save workflow as agent
+    ipcMain.handle('workflow:save-as-agent', async (_, insightId: string, customName?: string) => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return { success: false, error: 'No user logged in' };
+      
+      try {
+        return await this.mainWindow.proactiveInsightsManager.saveWorkflowAsAgent(
+          currentUser.id, 
+          insightId, 
+          customName
+        );
+      } catch (error) {
+        console.error('[EventManager] Failed to save workflow as agent:', error);
+        return { success: false, error: 'Failed to save workflow as agent' };
+      }
+    });
+
+    // Get all saved workflows
+    ipcMain.handle('workflow:get-all', async () => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return [];
+      
+      try {
+        return await this.mainWindow.proactiveInsightsManager.getSavedWorkflows(currentUser.id);
+      } catch (error) {
+        console.error('[EventManager] Failed to get workflows:', error);
+        return [];
+      }
+    });
+
+    // Execute workflow
+    ipcMain.handle('workflow:execute', async (_, workflowId: string) => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return { success: false, error: 'No user logged in' };
+      
+      try {
+        return await this.mainWindow.proactiveInsightsManager.executeWorkflow(
+          currentUser.id, 
+          workflowId
+        );
+      } catch (error) {
+        console.error('[EventManager] Failed to execute workflow:', error);
+        return { success: false, error: 'Failed to execute workflow' };
+      }
+    });
+
+    // Delete workflow
+    ipcMain.handle('workflow:delete', async (_, workflowId: string) => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return { success: false, error: 'No user logged in' };
+      
+      try {
+        return await this.mainWindow.proactiveInsightsManager.deleteWorkflow(
+          currentUser.id, 
+          workflowId
+        );
+      } catch (error) {
+        console.error('[EventManager] Failed to delete workflow:', error);
+        return { success: false, error: 'Failed to delete workflow' };
+      }
+    });
+
+    // Rename workflow
+    ipcMain.handle('workflow:rename', async (_, workflowId: string, newName: string) => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return { success: false, error: 'No user logged in' };
+      
+      try {
+        return await this.mainWindow.proactiveInsightsManager.renameWorkflow(
+          currentUser.id, 
+          workflowId, 
+          newName
+        );
+      } catch (error) {
+        console.error('[EventManager] Failed to rename workflow:', error);
+        return { success: false, error: 'Failed to rename workflow' };
       }
     });
   }

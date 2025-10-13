@@ -26,6 +26,7 @@ import { shoppingJourneyScenario } from './synthetic-data/scenarios/shopping-jou
 import { workResearchScenario } from './synthetic-data/scenarios/work-research';
 import { mixedBrowsingScenario } from './synthetic-data/scenarios/mixed-browsing';
 import { newsReaderScenario } from './synthetic-data/scenarios/news-reader';
+import { workflowFocusedScenario } from './synthetic-data/scenarios/workflow-focused';
 
 const scenarios: Record<string, GeneratorConfig> = {
   'shopping-journey': shoppingJourneyScenario,
@@ -36,6 +37,8 @@ const scenarios: Record<string, GeneratorConfig> = {
   'mixed': mixedBrowsingScenario,
   'news-reader': newsReaderScenario,
   'news': newsReaderScenario,
+  'workflow-focused': workflowFocusedScenario,
+  'workflow': workflowFocusedScenario,
 };
 
 async function main() {
@@ -85,6 +88,7 @@ async function main() {
         console.log(`   work, work-research        - Professional technical research`);
         console.log(`   mixed, mixed-browsing      - Casual varied browsing (default)`);
         console.log(`   news, news-reader          - News consumption patterns`);
+        console.log(`   workflow, workflow-focused - Repeated workflows for pattern detection`);
         process.exit(1);
       }
       console.log(`📋 Using scenario: ${options.scenario}`);

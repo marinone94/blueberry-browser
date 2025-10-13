@@ -206,6 +206,37 @@ interface InsightGenerationMetadata {
   totalInsightsActedUpon: number;
 }
 
+/**
+ * Saved workflow (persistent agent created from detected patterns)
+ */
+interface SavedWorkflow {
+  // Identity
+  id: string;                    // Format: workflow-{timestamp}-{random}
+  userId: string;
+  
+  // Metadata
+  name: string;                  // User-provided or auto-generated
+  description: string;           // From original insight
+  createdAt: Date;
+  createdFrom: string;           // Original insight/pattern ID
+  
+  // Workflow Definition
+  steps: Array<{
+    url: string;
+    title: string;               // Page title for display
+    category: string;            // For future filtering
+    subcategory: string;
+  }>;
+  
+  // Usage Analytics
+  lastUsed: Date | null;
+  useCount: number;
+  
+  // UI State (future use)
+  isPinned?: boolean;
+  tags?: string[];
+}
+
 // ============================================================================
 // PROACTIVE INSIGHTS MANAGER
 // ============================================================================
@@ -288,16 +319,16 @@ export class ProactiveInsightsManager {
         this.findAbandonedTasks(sessions),
         this.findTemporalPatterns(enrichedActivities)
       ]);
-      
+
       const allPatterns = [...sequential, ...topic, ...abandoned, ...temporal];
-      console.log(`[ProactiveInsights] Found ${allPatterns.length} patterns`);
+      console.log(`[ProactiveInsights] Found ${allPatterns.length} patterns in total`);
       
       // 6. Score and rank patterns
       const rankedPatterns = this.rankPatterns(allPatterns);
       this.patternsCache.set(userId, rankedPatterns);
       
       // 7. Generate actionable insights
-      const newInsights = await this.generateInsights(rankedPatterns, userId);
+      const newInsights = await this.generateInsights(rankedPatterns, userId, 20);
       
       // 8. Load existing insights and update with new session data
       const existingInsights = await this.loadInsights(userId);
@@ -624,6 +655,234 @@ export class ProactiveInsightsManager {
   }
 
   // ============================================================================
+  // WORKFLOW AUTOMATION
+  // ============================================================================
+
+  /**
+   * Save a workflow insight as a permanent agent
+   */
+  async saveWorkflowAsAgent(
+    userId: string, 
+    insightId: string, 
+    customName?: string
+  ): Promise<{ success: boolean; workflow?: SavedWorkflow; error?: string }> {
+    try {
+      console.log(`[WorkflowAutomation] Saving workflow as agent: insightId=${insightId}`);
+      
+      // 1. Find insight by ID
+      const insights = await this.getInsights(userId);
+      const insight = insights.find(i => i.id === insightId);
+      
+      if (!insight) {
+        return { success: false, error: 'Insight not found' };
+      }
+      
+      // 2. Validate it's a workflow type
+      if (insight.type !== 'workflow' || insight.actionType !== 'open_urls') {
+        return { success: false, error: 'This insight is not a workflow' };
+      }
+      
+      // 3. Extract steps from actionParams
+      const urls = insight.actionParams.urls as string[];
+      if (!urls || urls.length === 0) {
+        return { success: false, error: 'Workflow has no steps' };
+      }
+      
+      // 4. Get pattern details for step information
+      const pattern = insight.patterns[0] as SequentialPattern;
+      const steps = pattern.steps.map((step, index) => ({
+        url: urls[index] || step.url,
+        title: step.pageDescriptionSummary || step.url,
+        category: step.category,
+        subcategory: step.subcategory
+      }));
+      
+      // 5. Load existing workflows
+      const existingWorkflows = await this.loadSavedWorkflows(userId);
+      
+      // 6. Check for duplicates
+      if (this.workflowExists(existingWorkflows, steps)) {
+        return { success: false, error: 'A workflow with these steps already exists' };
+      }
+      
+      // 7. Create SavedWorkflow object
+      const workflow: SavedWorkflow = {
+        id: `workflow-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        userId,
+        name: customName || insight.title.replace('Detected workflow: ', ''),
+        description: insight.description,
+        createdAt: new Date(),
+        createdFrom: insightId,
+        steps,
+        lastUsed: null,
+        useCount: 0
+      };
+      
+      // 8. Save to disk
+      existingWorkflows.push(workflow);
+      await this.saveSavedWorkflows(userId, existingWorkflows);
+      
+      console.log(`[WorkflowAutomation] Successfully saved workflow: ${workflow.name} (${workflow.steps.length} steps)`);
+      
+      return { success: true, workflow };
+    } catch (error) {
+      console.error('[WorkflowAutomation] Error saving workflow:', error);
+      return { success: false, error: 'Failed to save workflow' };
+    }
+  }
+
+  /**
+   * Get all saved workflows for a user
+   */
+  async getSavedWorkflows(userId: string): Promise<SavedWorkflow[]> {
+    try {
+      const workflows = await this.loadSavedWorkflows(userId);
+      
+      // Sort by lastUsed (nulls last) then useCount
+      return workflows.sort((a, b) => {
+        if (a.lastUsed && b.lastUsed) {
+          return b.lastUsed.getTime() - a.lastUsed.getTime();
+        }
+        if (a.lastUsed && !b.lastUsed) return -1;
+        if (!a.lastUsed && b.lastUsed) return 1;
+        return b.useCount - a.useCount;
+      });
+    } catch (error) {
+      console.error('[WorkflowAutomation] Error getting workflows:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Execute a saved workflow (open all URLs in tabs)
+   */
+  async executeWorkflow(
+    userId: string, 
+    workflowId: string
+  ): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      console.log(`[WorkflowAutomation] Executing workflow: ${workflowId}`);
+      
+      // 1. Find workflow by ID
+      const workflows = await this.loadSavedWorkflows(userId);
+      const workflow = workflows.find(w => w.id === workflowId);
+      
+      if (!workflow) {
+        return { success: false, error: 'Workflow not found' };
+      }
+      
+      // 2. Open each URL in a new tab (using window reference)
+      if (!this.window) {
+        return { success: false, error: 'Window reference not available' };
+      }
+      
+      let lastTab;
+      for (const step of workflow.steps) {
+        lastTab = this.window.createTab(step.url);
+      }
+      
+      // 3. Switch to the last opened tab
+      if (lastTab) {
+        this.window.switchActiveTab(lastTab.id);
+      }
+      
+      // 4. Update lastUsed and increment useCount
+      workflow.lastUsed = new Date();
+      workflow.useCount += 1;
+      
+      // 5. Save updated workflows
+      await this.saveSavedWorkflows(userId, workflows);
+      
+      console.log(`[WorkflowAutomation] Successfully executed workflow: ${workflow.name} (${workflow.steps.length} tabs)`);
+      
+      return { success: true, message: `Opened ${workflow.steps.length} tabs` };
+    } catch (error) {
+      console.error('[WorkflowAutomation] Error executing workflow:', error);
+      return { success: false, error: 'Failed to execute workflow' };
+    }
+  }
+
+  /**
+   * Delete a saved workflow
+   */
+  async deleteWorkflow(
+    userId: string, 
+    workflowId: string
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      console.log(`[WorkflowAutomation] Deleting workflow: ${workflowId}`);
+      
+      // 1. Load workflows
+      const workflows = await this.loadSavedWorkflows(userId);
+      
+      // 2. Filter out target ID
+      const updatedWorkflows = workflows.filter(w => w.id !== workflowId);
+      
+      if (updatedWorkflows.length === workflows.length) {
+        return { success: false, error: 'Workflow not found' };
+      }
+      
+      // 3. Save back to disk
+      await this.saveSavedWorkflows(userId, updatedWorkflows);
+      
+      console.log(`[WorkflowAutomation] Successfully deleted workflow`);
+      
+      return { success: true };
+    } catch (error) {
+      console.error('[WorkflowAutomation] Error deleting workflow:', error);
+      return { success: false, error: 'Failed to delete workflow' };
+    }
+  }
+
+  /**
+   * Rename a saved workflow
+   */
+  async renameWorkflow(
+    userId: string, 
+    workflowId: string, 
+    newName: string
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      console.log(`[WorkflowAutomation] Renaming workflow: ${workflowId} to "${newName}"`);
+      
+      // 1. Find workflow by ID
+      const workflows = await this.loadSavedWorkflows(userId);
+      const workflow = workflows.find(w => w.id === workflowId);
+      
+      if (!workflow) {
+        return { success: false, error: 'Workflow not found' };
+      }
+      
+      // 2. Update name
+      workflow.name = newName;
+      
+      // 3. Save to disk
+      await this.saveSavedWorkflows(userId, workflows);
+      
+      console.log(`[WorkflowAutomation] Successfully renamed workflow`);
+      
+      return { success: true };
+    } catch (error) {
+      console.error('[WorkflowAutomation] Error renaming workflow:', error);
+      return { success: false, error: 'Failed to rename workflow' };
+    }
+  }
+
+  /**
+   * Check if a workflow with identical steps already exists
+   */
+  private workflowExists(
+    workflows: SavedWorkflow[], 
+    steps: Array<{url: string}>
+  ): boolean {
+    const stepUrls = steps.map(s => s.url).join('|');
+    return workflows.some(w => {
+      const workflowUrls = w.steps.map(s => s.url).join('|');
+      return workflowUrls === stepUrls;
+    });
+  }
+
+  // ============================================================================
   // SESSION LINKING & COMPLETION TRACKING
   // ============================================================================
 
@@ -827,6 +1086,29 @@ Output JSON only:
   ): Promise<BrowsingSession[]> {
     if (activities.length === 0) return [];
     
+    // Check if activities have pre-existing sessionIds (from synthetic data)
+    const hasPreexistingSessionIds = activities.every(a => a.activity.sessionId);
+    
+    if (hasPreexistingSessionIds) {
+      // Use pre-existing session boundaries (for synthetic data)
+      console.log(`[ProactiveInsights] Using pre-existing session boundaries from activities`);
+      const sessionMap = new Map<string, EnrichedActivity[]>();
+      
+      for (const activity of activities) {
+        const sessionId = activity.activity.sessionId;
+        if (!sessionMap.has(sessionId)) {
+          sessionMap.set(sessionId, []);
+        }
+        sessionMap.get(sessionId)!.push(activity);
+      }
+      
+      return Array.from(sessionMap.values()).map(sessionActivities => 
+        this.createSession(sessionActivities, userId)
+      );
+    }
+    
+    // Otherwise, use LLM-based semantic segmentation (for real user data)
+    console.log(`[ProactiveInsights] Using LLM-based session segmentation`);
     const sessions: BrowsingSession[] = [];
     let currentSession: EnrichedActivity[] = [activities[0]];
     
@@ -961,7 +1243,7 @@ Output JSON only:
    * Find sequential patterns (workflows)
    */
   private async findSequentialPatterns(sessions: BrowsingSession[]): Promise<SequentialPattern[]> {
-    console.log('[ProactiveInsights] Finding sequential patterns...');
+    console.log(`[ProactiveInsights] Finding sequential patterns from ${sessions.length} sessions...`);
     
     // Extract content-based sequences (category + subcategory + brand tuples)
     const contentSequences = sessions
@@ -982,6 +1264,8 @@ Output JSON only:
       }))
       .filter(s => s.sequence.length >= 2);
     
+    console.log(`[ProactiveInsights] Found ${contentSequences.length} content sequences with 2+ activities`);
+    
     if (contentSequences.length < 2) {
       console.log('[ProactiveInsights] Not enough sequences for pattern detection');
       return [];
@@ -997,7 +1281,8 @@ Output JSON only:
         
         const similarity = this.compareSequences(seq1, seq2);
         
-        if (similarity > 0.7) {
+        // More than only category match
+        if (similarity > 0.2) {
           // Found a matching pattern
           const patternKey = this.generateSequenceKey(seq1);
           
@@ -1034,7 +1319,10 @@ Output JSON only:
     }
     
     // Filter by minimum frequency
-    const frequentPatterns = Array.from(patterns.values()).filter(p => p.frequency >= 2);
+    const allPatterns = Array.from(patterns.values());
+    console.log(`[ProactiveInsights] Found ${allPatterns.length} raw patterns before frequency filter`);
+    const frequentPatterns = allPatterns.filter(p => p.frequency >= 2);
+    console.log(`[ProactiveInsights] ${frequentPatterns.length} patterns with frequency >= 2`);
     
     // Enrich with semantic themes using LLM
     for (const pattern of frequentPatterns) {
@@ -1057,14 +1345,14 @@ Output JSON only:
     
     for (let i = 0; i < minLen; i++) {
       
-      // Category match (40% weight)
-      const categoryMatch = seq1[i].category === seq2[i].category ? 0.4 : 0;
+      // Category match (20% weight)
+      const categoryMatch = seq1[i].category === seq2[i].category ? 0.2 : 0;
       
-      // Subcategory match (30% weight)
-      const subcategoryMatch = seq1[i].subcategory === seq2[i].subcategory ? 0.3 : 0;
+      // Subcategory match (40% weight)
+      const subcategoryMatch = seq1[i].subcategory === seq2[i].subcategory ? 0.4 : 0;
       
-      // Brand match (30% weight)
-      const brandMatch = seq1[i].brand === seq2[i].brand ? 0.3 : 0;
+      // Brand match (40% weight)
+      const brandMatch = seq1[i].brand === seq2[i].brand ? 0.4 : 0;
       
       totalSimilarity += categoryMatch + subcategoryMatch + brandMatch;
     }
@@ -1130,7 +1418,14 @@ Output only the name, nothing else.`;
       }
     }
     
-    const patterns: TopicPattern[] = [];
+    // Prepare all pattern data first (without LLM calls)
+    const patternData: Array<{
+      category: string;
+      sessionGroup: BrowsingSession[];
+      allContent: any[];
+      totalTime: number;
+      lastOccurrence: Date;
+    }> = [];
     
     for (const [category, sessionGroup] of categoryGroups) {
       if (sessionGroup.length < 2) continue; // Need recurrence
@@ -1148,29 +1443,46 @@ Output only the name, nothing else.`;
           }))
       );
       
-      // LLM analyzes the research topic
-      const analysis = await this.llmAnalyzeResearchTopic(category, allContent);
-      
       const totalTime = sessionGroup.reduce((sum, s) => sum + s.duration, 0);
       const lastOccurrence = new Date(
         Math.max(...sessionGroup.map(s => s.endTime.getTime()))
       );
       
-      patterns.push({
-        type: 'research_topic',
-        patternId: `topic-${category}-${Date.now()}`,
-        mainCategory: category,
-        subcategories: [...new Set(allContent.map(c => c.subcategory))],
-        brands: [...new Set(allContent.map(c => c.brand).filter(Boolean))],
-        semanticSummary: analysis.summary,
-        sessions: sessionGroup,
+      patternData.push({
+        category,
+        sessionGroup,
+        allContent,
         totalTime,
-        pagesSeen: allContent.length,
-        keyInsights: analysis.insights,
-        lastOccurrence,
-        score: 0
+        lastOccurrence
       });
     }
+    
+    // Run LLM analysis in parallel for all patterns (limit to top 10 by session count)
+    const topPatternData = patternData
+      .sort((a, b) => b.sessionGroup.length - a.sessionGroup.length)
+      .slice(0, 10);
+    
+    const analyses = await Promise.all(
+      topPatternData.map(data => 
+        this.llmAnalyzeResearchTopic(data.category, data.allContent)
+      )
+    );
+    
+    // Build final patterns
+    const patterns: TopicPattern[] = topPatternData.map((data, index) => ({
+      type: 'research_topic',
+      patternId: `topic-${data.category}-${Date.now()}-${index}`,
+      mainCategory: data.category,
+      subcategories: [...new Set(data.allContent.map(c => c.subcategory))],
+      brands: [...new Set(data.allContent.map(c => c.brand).filter(Boolean))],
+      semanticSummary: analyses[index].summary,
+      sessions: data.sessionGroup,
+      totalTime: data.totalTime,
+      pagesSeen: data.allContent.length,
+      keyInsights: analyses[index].insights,
+      lastOccurrence: data.lastOccurrence,
+      score: 0
+    }));
     
     console.log(`[ProactiveInsights] Found ${patterns.length} topic patterns`);
     return patterns;
@@ -1208,7 +1520,16 @@ Be specific and actionable.`;
         prompt,
       });
 
-      const parsed = JSON.parse(result.text);
+      // Extract JSON from potential markdown wrapper or extra text
+      let jsonText = result.text.trim();
+      const jsonMatch = jsonText.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/) || 
+                        jsonText.match(/(\{[\s\S]*\})/);
+      
+      if (jsonMatch) {
+        jsonText = jsonMatch[1];
+      }
+
+      const parsed = JSON.parse(jsonText);
       return {
         summary: parsed.summary || 'Summary unavailable',
         insights: parsed.insights || []
@@ -1228,33 +1549,39 @@ Be specific and actionable.`;
   private async findAbandonedTasks(sessions: BrowsingSession[]): Promise<AbandonmentPattern[]> {
     console.log('[ProactiveInsights] Finding abandoned tasks...');
     
-    const abandoned: AbandonmentPattern[] = [];
-    
-    for (const session of sessions) {
-      // Skip sessions that are too short (less than 2 activities)
-      if (session.activities.length < 2) continue;
+    // Filter candidate sessions first
+    const candidateSessions = sessions.filter(session => {
+      if (session.activities.length < 2) return false;
       
-      // Skip sessions with no content analysis (can't determine intent)
       const hasAnalysis = session.activities.some(a => a.analysis);
-      if (!hasAnalysis) {
-        console.log('[ProactiveInsights] Skipping session with no content analysis');
-        continue;
-      }
+      if (!hasAnalysis) return false;
       
-      // Skip very short sessions (less than 30 seconds - likely accidental navigation)
-      if (session.duration < 30000) {
-        console.log('[ProactiveInsights] Skipping very short session (<30s)');
-        continue;
-      }
+      if (session.duration < 30000) return false;
       
-      // LLM analyzes if task was completed
-      const analysis = await this.llmAnalyzeCompletion(session);
+      return true;
+    });
+    
+    // Limit to most recent 15 sessions for performance
+    const sessionsToAnalyze = candidateSessions
+      .sort((a, b) => b.endTime.getTime() - a.endTime.getTime())
+      .slice(0, 15);
+    
+    // Run LLM analysis in parallel
+    const analyses = await Promise.all(
+      sessionsToAnalyze.map(session => 
+        this.llmAnalyzeCompletion(session)
+      )
+    );
+    
+    // Build abandoned tasks from analysis results
+    const abandoned: AbandonmentPattern[] = [];
+    for (let i = 0; i < sessionsToAnalyze.length; i++) {
+      const session = sessionsToAnalyze[i];
+      const analysis = analyses[i];
       
-      // Validate that we have meaningful analysis (not fallback values)
       const isMeaningful = this.isAbandonmentAnalysisMeaningful(analysis);
       
       if (analysis.completionScore < 0.6 && isMeaningful) {
-        // Likely abandoned with meaningful intent
         abandoned.push({
           type: 'abandoned',
           patternId: `abandoned-${session.sessionId}`,
@@ -1480,7 +1807,8 @@ Output JSON:
     // Frequency score (0-1)
     let frequencyScore = 0;
     if (pattern.type === 'sequential') {
-      frequencyScore = Math.min(pattern.frequency / 10, 1.0);
+      // Workflows detected even once (frequency >= 2) are valuable - boost their score
+      frequencyScore = Math.min(pattern.frequency / 5, 1.0); // More generous: 2/5 = 0.4 instead of 2/10 = 0.2
     } else if (pattern.type === 'research_topic') {
       frequencyScore = Math.min(pattern.sessions.length / 10, 1.0);
     } else if (pattern.type === 'temporal') {
@@ -1496,21 +1824,32 @@ Output JSON:
     // Impact score (0-1, estimated time saved)
     let impactScore = 0;
     if (pattern.type === 'sequential') {
-      impactScore = Math.min(pattern.steps.length * 5 / 60, 1.0); // 5s per step
+      // Workflows have high impact potential - boost the score
+      impactScore = Math.min(pattern.steps.length * 10 / 60, 1.0); // 10s per step
     } else if (pattern.type === 'research_topic') {
       impactScore = Math.min(pattern.totalTime / (1000 * 60 * 60), 1.0); // Hours spent
     } else if (pattern.type === 'abandoned') {
-      impactScore = Math.min(pattern.session.duration / (1000 * 60 * 30), 1.0); // 30min max
+      impactScore = Math.min(pattern.session.duration / (1000 * 60 * 30), 0.5); // 30min max
     } else if (pattern.type === 'temporal') {
       impactScore = Math.min(pattern.frequency / 20, 1.0);
     }
     
-    // Weighted composite
-    return (
+    // Weighted composite - boost sequential patterns slightly
+    const baseScore = (
       frequencyScore * 0.3 +
       recencyScore * 0.3 +
       impactScore * 0.4
     );
+
+    console.log(`[ProactiveInsights] Frequency score: ${frequencyScore}`);
+    console.log(`[ProactiveInsights] Recency score: ${recencyScore}`);
+    console.log(`[ProactiveInsights] Impact score: ${impactScore}`);
+    console.log(`[ProactiveInsights] Base score for ${pattern.type}: ${baseScore}`);
+    
+    // Give workflow patterns a 50% boost to prioritize them
+    const finalScore = pattern.type === 'sequential' ? Math.min(baseScore * 1.5, 1.0) : baseScore;
+    console.log(`[ProactiveInsights] Final score for ${pattern.type}: ${finalScore}`);
+    return finalScore;
   }
 
   // ============================================================================
@@ -1522,14 +1861,15 @@ Output JSON:
    */
   private async generateInsights(
     patterns: Pattern[],
-    userId: string
+    userId: string,
+    topN: number = 10
   ): Promise<ProactiveInsight[]> {
     console.log('[ProactiveInsights] Generating actionable insights...');
     
     const insights: ProactiveInsight[] = [];
     
     // Take top N patterns
-    const topPatterns = patterns.slice(0, 10);
+    const topPatterns = patterns.slice(0, topN);
     
     for (const pattern of topPatterns) {
       const insight = await this.generateInsightFromPattern(pattern, userId);
@@ -1695,7 +2035,7 @@ Output JSON:
     
     try {
       const files = await fs.readdir(userDataPath);
-      const jsonFiles = files.filter(f => f.endsWith('.json')).sort().reverse().slice(0, 7); // Last 7 days
+      const jsonFiles = files.filter(f => f.endsWith('.json')).sort().reverse().slice(0, 30); // Last 30 days
       
       const allActivities: Activity[] = [];
       
@@ -1723,7 +2063,7 @@ Output JSON:
     
     try {
       const files = await fs.readdir(analysisPath);
-      const jsonFiles = files.filter(f => f.endsWith('.json')).sort().reverse().slice(0, 7); // Last 7 days
+      const jsonFiles = files.filter(f => f.endsWith('.json')).sort().reverse().slice(0, 30); // Last 30 days
       
       const allAnalyses: ContentAnalysis[] = [];
       
@@ -1950,6 +2290,55 @@ Output JSON:
       console.log(`[ProactiveInsights] Saved generation metadata for user ${userId}`);
     } catch (error) {
       console.error('[ProactiveInsights] Error saving metadata:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get path to saved workflows file
+   */
+  private getSavedWorkflowsFilePath(userId: string): string {
+    return join(this.userDataManager['usersDir'], 'user-data', userId, 'saved-workflows.json');
+  }
+
+  /**
+   * Load saved workflows from disk
+   */
+  private async loadSavedWorkflows(userId: string): Promise<SavedWorkflow[]> {
+    const filePath = this.getSavedWorkflowsFilePath(userId);
+    
+    try {
+      const fileContent = await fs.readFile(filePath, 'utf-8');
+      const workflows = JSON.parse(fileContent);
+      
+      // Convert date strings back to Date objects
+      return workflows.map((w: any) => ({
+        ...w,
+        createdAt: new Date(w.createdAt),
+        lastUsed: w.lastUsed ? new Date(w.lastUsed) : null
+      }));
+    } catch {
+      // File doesn't exist yet
+      return [];
+    }
+  }
+
+  /**
+   * Save workflows to disk
+   */
+  private async saveSavedWorkflows(userId: string, workflows: SavedWorkflow[]): Promise<void> {
+    const filePath = this.getSavedWorkflowsFilePath(userId);
+    
+    try {
+      // Ensure directory exists
+      await fs.mkdir(join(this.userDataManager['usersDir'], 'user-data', userId), { recursive: true });
+      
+      // Save workflows
+      await fs.writeFile(filePath, JSON.stringify(workflows, null, 2));
+      
+      console.log(`[WorkflowAutomation] Saved ${workflows.length} workflows for user ${userId}`);
+    } catch (error) {
+      console.error('[WorkflowAutomation] Error saving workflows:', error);
       throw error;
     }
   }
