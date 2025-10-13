@@ -8,6 +8,7 @@ import { ActivityCollector } from "./ActivityCollector";
 import { ContentAnalyzer } from "./ContentAnalyzer";
 import { CategoryManager } from "./CategoryManager";
 import { VectorSearchManager } from "./VectorSearchManager";
+import { ProactiveInsightsManager } from "./ProactiveInsightsManager";
 
 export class Window {
   private _baseWindow!: BaseWindow;
@@ -23,6 +24,7 @@ export class Window {
   private _contentAnalyzer!: ContentAnalyzer;
   private _categoryManager!: CategoryManager;
   private _vectorSearchManager!: VectorSearchManager;
+  private _proactiveInsightsManager!: ProactiveInsightsManager;
 
   private constructor() {
     // Private constructor - use Window.create() instead
@@ -61,6 +63,15 @@ export class Window {
 
     // Initialize vector search manager
     this._vectorSearchManager = new VectorSearchManager();
+
+    // Initialize proactive insights manager
+    this._proactiveInsightsManager = new ProactiveInsightsManager(
+      this._userDataManager,
+      this._vectorSearchManager
+    );
+    
+    // Set window reference for auto-completion notifications
+    this._proactiveInsightsManager.setWindow(this);
 
     // Initialize content analyzer
     this._contentAnalyzer = new ContentAnalyzer(
@@ -461,9 +472,13 @@ export class Window {
   get userDataManager(): UserDataManager {
     return this._userDataManager;
   }
-
+  
   get vectorSearchManager(): VectorSearchManager {
     return this._vectorSearchManager;
+  }
+
+  get proactiveInsightsManager(): ProactiveInsightsManager {
+    return this._proactiveInsightsManager;
   }
 
   /**

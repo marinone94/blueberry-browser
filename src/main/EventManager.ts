@@ -29,6 +29,9 @@ export class EventManager {
     // History events
     this.handleHistoryEvents();
 
+    // Proactive insights events
+    this.handleInsightsEvents();
+
     // Activity tracking events
     this.handleActivityTrackingEvents();
 
@@ -837,6 +840,336 @@ export class EventManager {
     });
   }
 
+  private handleInsightsEvents(): void {
+    // Analyze user behavior and generate insights
+    ipcMain.handle("analyze-behavior", async () => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return [];
+      
+      try {
+        console.log('[EventManager] Analyzing behavior for user:', currentUser.name);
+        const insights = await this.mainWindow.proactiveInsightsManager.analyzeUserBehavior(currentUser.id);
+        console.log('[EventManager] Generated insights:', insights.length);
+        return insights;
+      } catch (error) {
+        console.error('[EventManager] Failed to analyze behavior:', error);
+        return [];
+      }
+    });
+
+    // Get cached insights
+    ipcMain.handle("get-insights", async () => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return [];
+      
+      try {
+        const insights = await this.mainWindow.proactiveInsightsManager.getInsights(currentUser.id);
+        return insights;
+      } catch (error) {
+        console.error('[EventManager] Failed to get insights:', error);
+        return [];
+      }
+    });
+
+    // Check for real-time triggers
+    ipcMain.handle("check-insight-triggers", async (_, currentUrl: string, recentActivitiesJson: string) => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return [];
+      
+      try {
+        const recentActivities = JSON.parse(recentActivitiesJson);
+        const triggered = await this.mainWindow.proactiveInsightsManager.checkRealtimeTriggers(
+          currentUser.id,
+          currentUrl,
+          recentActivities
+        );
+        return triggered;
+      } catch (error) {
+        console.error('[EventManager] Failed to check triggers:', error);
+        return [];
+      }
+    });
+
+    // Execute insight action
+    ipcMain.handle("execute-insight-action", async (_, insightId: string) => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return { success: false, error: 'No user logged in' };
+      
+      try {
+        const insights = await this.mainWindow.proactiveInsightsManager.getInsights(currentUser.id);
+        const insight = insights.find(i => i.id === insightId);
+        
+        if (!insight) {
+          return { success: false, error: 'Insight not found' };
+        }
+
+        // Check if already completed (except for reminders)
+        if (insight.status === 'completed' && insight.actionType !== 'remind') {
+          return { success: false, error: 'This insight has already been completed' };
+        }
+
+        // Execute action based on type
+        if (insight.actionType === 'open_urls') {
+          const urls = insight.actionParams.urls as string[];
+          let lastTab;
+          for (const url of urls) {
+            lastTab = this.mainWindow.createTab(url);
+          }
+          // Switch to the last opened tab
+          if (lastTab) {
+            this.mainWindow.switchActiveTab(lastTab.id);
+          }
+          
+          // Mark as completed for workflow insights
+          await this.mainWindow.proactiveInsightsManager.markInsightAsCompleted(currentUser.id, insightId);
+          
+          return { success: true, message: `Opened ${urls.length} tabs` };
+        } else if (insight.actionType === 'resume_research') {
+          const lastUrl = insight.actionParams.lastUrl as string | undefined;
+          console.log(`[EventManager] Resuming research with URL: ${lastUrl}`);
+          
+          if (lastUrl) {
+            try {
+              const newTab = this.mainWindow.createTab(lastUrl);
+              this.mainWindow.switchActiveTab(newTab.id);
+              
+              // For abandoned tasks: mark as in_progress (not completed)
+              // The system will auto-detect completion based on browsing activity
+              if (insight.type === 'abandoned') {
+                await this.mainWindow.proactiveInsightsManager.markInsightAsInProgress(currentUser.id, insightId);
+              } else {
+                // For other research insights: mark as completed
+                await this.mainWindow.proactiveInsightsManager.markInsightAsCompleted(currentUser.id, insightId);
+              }
+              
+              return { success: true, message: 'Resumed where you left off' };
+            } catch (error) {
+              console.error('[EventManager] Failed to create tab:', error);
+              return { success: false, error: 'Failed to create tab' };
+            }
+          }
+          return { success: false, error: 'No URL available to resume' };
+        } else if (insight.actionType === 'remind') {
+          // Check if reminder with same domain, day, and hour already exists
+          const existingReminders = await this.mainWindow.userDataManager.getReminders(currentUser.id);
+          
+          // Extract key properties from the new reminder
+          const newDomain = insight.actionParams?.domain;
+          const newDayOfWeek = insight.actionParams?.dayOfWeek;
+          const newHour = insight.actionParams?.hour;
+          
+          // Check for duplicate based on content (domain, day, hour)
+          // Only consider it a duplicate if all three match
+          const existingReminder = existingReminders.find(r => {
+            if (r.completed) return false; // Ignore completed reminders
+            
+            const existingDomain = r.actionParams?.domain;
+            const existingDayOfWeek = r.actionParams?.dayOfWeek;
+            const existingHour = r.actionParams?.hour;
+            
+            // All three must match for it to be a duplicate
+            return existingDomain === newDomain && 
+                   existingDayOfWeek === newDayOfWeek && 
+                   existingHour === newHour;
+          });
+          
+          if (existingReminder) {
+            return { success: false, error: 'A similar reminder already exists for this time and website' };
+          }
+          
+          // Store reminder
+          const reminder = {
+            id: `reminder-${Date.now()}`,
+            insightId: insight.id,
+            userId: currentUser.id,
+            title: insight.title,
+            description: insight.description,
+            actionParams: insight.actionParams,
+            createdAt: new Date().toISOString(),
+            completed: false
+          };
+          
+          await this.mainWindow.userDataManager.saveReminder(currentUser.id, reminder);
+          
+          // Send success message to UI
+          this.mainWindow.sidebar.view.webContents.send('reminder-set', {
+            message: 'Reminder saved successfully',
+            reminder
+          });
+          
+          // Note: We don't mark reminders as acted upon, as they can be set multiple times
+          
+          return { success: true, message: 'Reminder set successfully' };
+        }
+
+        return { success: true, message: 'Action executed' };
+      } catch (error) {
+        console.error('[EventManager] Failed to execute insight action:', error);
+        return { success: false, error: 'Failed to execute action' };
+      }
+    });
+
+    // Get reminders for current user
+    ipcMain.handle("get-reminders", async () => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return [];
+      
+      try {
+        return await this.mainWindow.userDataManager.getReminders(currentUser.id);
+      } catch (error) {
+        console.error('[EventManager] Failed to get reminders:', error);
+        return [];
+      }
+    });
+
+    // Complete a reminder
+    ipcMain.handle("complete-reminder", async (_, reminderId: string) => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return { success: false, error: 'No user logged in' };
+      
+      try {
+        await this.mainWindow.userDataManager.completeReminder(currentUser.id, reminderId);
+        return { success: true };
+      } catch (error) {
+        console.error('[EventManager] Failed to complete reminder:', error);
+        return { success: false, error: 'Failed to complete reminder' };
+      }
+    });
+
+    // Delete a reminder
+    ipcMain.handle("delete-reminder", async (_, reminderId: string) => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return { success: false, error: 'No user logged in' };
+      
+      try {
+        await this.mainWindow.userDataManager.deleteReminder(currentUser.id, reminderId);
+        return { success: true };
+      } catch (error) {
+        console.error('[EventManager] Failed to delete reminder:', error);
+        return { success: false, error: 'Failed to delete reminder' };
+      }
+    });
+
+    // Execute reminder action (open URL, etc)
+    ipcMain.handle("execute-reminder-action", async (_, reminderId: string) => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return { success: false, error: 'No user logged in' };
+      
+      try {
+        const reminders = await this.mainWindow.userDataManager.getReminders(currentUser.id);
+        const reminder = reminders.find(r => r.id === reminderId);
+        
+        if (!reminder) {
+          return { success: false, error: 'Reminder not found' };
+        }
+
+        // Execute the action based on action params
+        if (reminder.actionParams?.domain) {
+          // Temporal pattern - open the domain
+          const newTab = this.mainWindow.createTab(`https://${reminder.actionParams.domain}`);
+          this.mainWindow.switchActiveTab(newTab.id);
+        }
+
+        // Mark as completed
+        await this.mainWindow.userDataManager.completeReminder(currentUser.id, reminderId);
+        
+        return { success: true, message: 'Reminder executed' };
+      } catch (error) {
+        console.error('[EventManager] Failed to execute reminder:', error);
+        return { success: false, error: 'Failed to execute reminder' };
+      }
+    });
+
+    // Mark insight as completed manually
+    ipcMain.handle("mark-insight-completed", async (_, insightId: string) => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return { success: false, error: 'No user logged in' };
+      
+      try {
+        await this.mainWindow.proactiveInsightsManager.markInsightAsCompleted(currentUser.id, insightId);
+        return { success: true, message: 'Insight marked as completed' };
+      } catch (error) {
+        console.error('[EventManager] Failed to mark insight as completed:', error);
+        return { success: false, error: 'Failed to mark insight as completed' };
+      }
+    });
+
+    // Get tabs from session IDs (for unfinished tasks)
+    ipcMain.handle("get-insight-session-tabs", async (_, insightId: string) => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return { success: false, error: 'No user logged in', tabs: [] };
+      
+      try {
+        const insights = await this.mainWindow.proactiveInsightsManager.getInsights(currentUser.id);
+        const insight = insights.find(i => i.id === insightId);
+        
+        if (!insight) {
+          return { success: false, error: 'Insight not found', tabs: [] };
+        }
+        
+        if (!insight.linkedSessionIds || insight.linkedSessionIds.length === 0) {
+          return { success: false, error: 'No sessions linked to this insight', tabs: [] };
+        }
+        
+        const tabs = await this.mainWindow.proactiveInsightsManager.getTabsFromSessions(
+          currentUser.id, 
+          insight.linkedSessionIds
+        );
+        
+        return { success: true, tabs, totalTabs: tabs.length, openedTabs: insight.openedTabUrls || [] };
+      } catch (error) {
+        console.error('[EventManager] Failed to get session tabs:', error);
+        return { success: false, error: 'Failed to get session tabs', tabs: [] };
+      }
+    });
+
+    // Open a tab and track it for an insight
+    ipcMain.handle("open-and-track-tab", async (_, insightId: string, url: string) => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return { success: false, error: 'No user logged in' };
+      
+      try {
+        // Open the tab
+        const newTab = this.mainWindow.createTab(url);
+        this.mainWindow.switchActiveTab(newTab.id);
+        
+        // Track the opened tab
+        await this.mainWindow.proactiveInsightsManager.trackOpenedTab(currentUser.id, insightId, url);
+        
+        // Get completion percentage
+        const completionPercentage = await this.mainWindow.proactiveInsightsManager.getTabCompletionPercentage(
+          currentUser.id, 
+          insightId
+        );
+        
+        console.log(`[EventManager] Opened and tracked tab: ${url}, completion: ${(completionPercentage * 100).toFixed(1)}%`);
+        
+        return { success: true, message: 'Tab opened and tracked', completionPercentage };
+      } catch (error) {
+        console.error('[EventManager] Failed to open and track tab:', error);
+        return { success: false, error: 'Failed to open and track tab' };
+      }
+    });
+
+    // Get tab completion percentage for an insight
+    ipcMain.handle("get-tab-completion-percentage", async (_, insightId: string) => {
+      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+      if (!currentUser) return { success: false, error: 'No user logged in', percentage: 0 };
+      
+      try {
+        const percentage = await this.mainWindow.proactiveInsightsManager.getTabCompletionPercentage(
+          currentUser.id, 
+          insightId
+        );
+        
+        return { success: true, percentage };
+      } catch (error) {
+        console.error('[EventManager] Failed to get tab completion percentage:', error);
+        return { success: false, error: 'Failed to get completion percentage', percentage: 0 };
+      }
+    });
+  }
+
   private handleCommunicationEvents(): void {
     // Send message from topbar to sidebar
     ipcMain.handle("send-to-sidebar", (_, type: string, data?: any) => {
@@ -899,6 +1232,16 @@ export class EventManager {
       } catch (error) {
         console.error('Failed to get activity data size:', error);
         return 0;
+      }
+    });
+
+    ipcMain.handle('populate-history-from-activities', async (_, userId: string) => {
+      try {
+        const count = await this.mainWindow.userDataManager.populateHistoryFromActivities(userId);
+        return { success: true, count };
+      } catch (error) {
+        console.error('Failed to populate history from activities:', error);
+        return { success: false, error: String(error) };
       }
     });
 

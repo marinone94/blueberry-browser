@@ -87,6 +87,14 @@ For comprehensive development guidance, see **[AGENTS.md](./AGENTS.md#developmen
 - Click-to-navigate with existing tab detection
 - Manual refresh and bulk clear options
 
+✅ **AI Proactive Insights**
+- LLM-powered behavior analysis detecting patterns across 7 days of activity
+- Automatic workflow detection (recurring tab sequences)
+- Research topic summaries with key findings
+- Abandoned task identification with resume suggestions
+- Time-based habit recognition
+- One-click action execution from insights panel
+
 ### 🚧 Development Roadmap
 During the challenge, the development roadmap is documented in **[ROADMAP.md](./docs/ROADMAP.md)**.
 Currently .gitignored as the repo is public.

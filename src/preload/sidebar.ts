@@ -101,6 +101,57 @@ const sidebarAPI = {
     electronAPI.ipcRenderer.invoke("clear-activity-data", userId, beforeDate),
   getActivityDataSize: (userId: string) =>
     electronAPI.ipcRenderer.invoke("get-activity-data-size", userId),
+  populateHistoryFromActivities: (userId: string) =>
+    electronAPI.ipcRenderer.invoke("populate-history-from-activities", userId),
+  
+  // Proactive Insights functionality
+  analyzeBehavior: () => electronAPI.ipcRenderer.invoke("analyze-behavior"),
+  getInsights: () => electronAPI.ipcRenderer.invoke("get-insights"),
+  checkInsightTriggers: (currentUrl: string, recentActivities: any[]) => 
+    electronAPI.ipcRenderer.invoke("check-insight-triggers", currentUrl, JSON.stringify(recentActivities)),
+  executeInsightAction: (insightId: string) => 
+    electronAPI.ipcRenderer.invoke("execute-insight-action", insightId),
+  markInsightCompleted: (insightId: string) => 
+    electronAPI.ipcRenderer.invoke("mark-insight-completed", insightId),
+  
+  // Session tabs for unfinished tasks
+  getInsightSessionTabs: (insightId: string) =>
+    electronAPI.ipcRenderer.invoke("get-insight-session-tabs", insightId),
+  openAndTrackTab: (insightId: string, url: string) =>
+    electronAPI.ipcRenderer.invoke("open-and-track-tab", insightId, url),
+  getTabCompletionPercentage: (insightId: string) =>
+    electronAPI.ipcRenderer.invoke("get-tab-completion-percentage", insightId),
+  
+  // Reminders functionality
+  getReminders: () => electronAPI.ipcRenderer.invoke("get-reminders"),
+  completeReminder: (reminderId: string) => 
+    electronAPI.ipcRenderer.invoke("complete-reminder", reminderId),
+  deleteReminder: (reminderId: string) => 
+    electronAPI.ipcRenderer.invoke("delete-reminder", reminderId),
+  executeReminderAction: (reminderId: string) => 
+    electronAPI.ipcRenderer.invoke("execute-reminder-action", reminderId),
+  
+  // Listen for reminder events
+  onReminderSet: (callback: (data: any) => void) => {
+    electronAPI.ipcRenderer.on("reminder-set", (_, data) => callback(data));
+  },
+  removeReminderSetListener: () => {
+    electronAPI.ipcRenderer.removeAllListeners("reminder-set");
+  },
+  
+  // Listen for insight auto-completion events
+  onInsightAutoCompleted: (callback: (data: { insightId: string; percentage: number; reason: string }) => void) => {
+    electronAPI.ipcRenderer.on("insight-auto-completed", (_, data) => callback(data));
+  },
+  removeInsightAutoCompletedListener: () => {
+    electronAPI.ipcRenderer.removeAllListeners("insight-auto-completed");
+  },
+  onInsightCompletionConfirmationRequest: (callback: (data: { insightId: string; percentage: number }) => void) => {
+    electronAPI.ipcRenderer.on("insight-completion-confirmation-request", (_, data) => callback(data));
+  },
+  removeInsightCompletionConfirmationRequestListener: () => {
+    electronAPI.ipcRenderer.removeAllListeners("insight-completion-confirmation-request");
+  },
   
   // Listen for messages from topbar
   onTopbarMessage: (callback: (type: string, data: any) => void) => {

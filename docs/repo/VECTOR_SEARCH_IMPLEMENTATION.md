@@ -253,7 +253,7 @@ Add all documents to chat_history table
 
 #### LLM Summary Generation
 
-Summaries are generated using GPT-4o-mini:
+Summaries are generated using GPT-5-nano:
 
 ```typescript
 // Prompt example

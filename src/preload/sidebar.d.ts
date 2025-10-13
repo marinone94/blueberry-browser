@@ -80,6 +80,54 @@ interface ChatHistory {
   updatedAt: Date;
 }
 
+interface ProactiveInsight {
+  id: string;
+  userId: string;
+  type: 'workflow' | 'research' | 'abandoned' | 'habit';
+  title: string;
+  description: string;
+  actionType: 'open_urls' | 'resume_research' | 'remind' | 'create_workflow';
+  actionParams: any;
+  patterns: any[];
+  relevanceScore: number;
+  createdAt: string;  // ISO date string (serialized by IPC)
+  triggeredAt?: string;  // ISO date string (serialized by IPC)
+  
+  // Status tracking
+  status: 'pending' | 'in_progress' | 'completed';
+  
+  // Legacy support (deprecated)
+  actedUpon?: boolean;
+  actedUponAt?: string;  // ISO date string (serialized by IPC)
+  
+  // Progress tracking for abandoned tasks
+  lastResumedAt?: string;  // ISO date string (serialized by IPC)
+  linkedSessionIds?: string[];  // Track all sessions related to this insight
+  completionProgress?: number;  // 0.0 - 1.0
+  
+  // Tracking for tab reopening
+  openedTabUrls?: string[];  // URLs that were reopened by the user
+}
+
+interface SessionTab {
+  url: string;
+  title: string;
+  timestamp: string;
+  sessionId: string;
+}
+
+interface Reminder {
+  id: string;
+  insightId: string;
+  userId: string;
+  title: string;
+  description: string;
+  actionParams: any;
+  createdAt: string;
+  completed: boolean;
+  completedAt?: string;
+}
+
 interface SidebarAPI {
   // Chat functionality
   sendChatMessage: (request: Partial<ChatRequest>) => Promise<void>;
@@ -136,6 +184,33 @@ interface SidebarAPI {
   getActivityDateRange: (userId: string) => Promise<{startDate: string, endDate: string, totalDays: number}>;
   clearActivityData: (userId: string, beforeDate?: string) => Promise<{success: boolean, error?: string}>;
   getActivityDataSize: (userId: string) => Promise<number>;
+  populateHistoryFromActivities: (userId: string) => Promise<{success: boolean, count?: number, error?: string}>;
+  
+  // Proactive Insights functionality
+  analyzeBehavior: () => Promise<ProactiveInsight[]>;
+  getInsights: () => Promise<ProactiveInsight[]>;
+  checkInsightTriggers: (currentUrl: string, recentActivities: any[]) => Promise<ProactiveInsight[]>;
+  executeInsightAction: (insightId: string) => Promise<{success: boolean, message?: string, error?: string}>;
+  markInsightCompleted: (insightId: string) => Promise<{success: boolean, message?: string, error?: string}>;
+  
+  // Session tabs for unfinished tasks
+  getInsightSessionTabs: (insightId: string) => Promise<{success: boolean, tabs: SessionTab[], totalTabs: number, openedTabs: string[], error?: string}>;
+  openAndTrackTab: (insightId: string, url: string) => Promise<{success: boolean, message?: string, completionPercentage?: number, error?: string}>;
+  getTabCompletionPercentage: (insightId: string) => Promise<{success: boolean, percentage: number, error?: string}>;
+  
+  // Reminders functionality
+  getReminders: () => Promise<Reminder[]>;
+  completeReminder: (reminderId: string) => Promise<{success: boolean, error?: string}>;
+  deleteReminder: (reminderId: string) => Promise<{success: boolean, error?: string}>;
+  executeReminderAction: (reminderId: string) => Promise<{success: boolean, message?: string, error?: string}>;
+  onReminderSet: (callback: (data: any) => void) => void;
+  removeReminderSetListener: () => void;
+  
+  // Listen for insight auto-completion events
+  onInsightAutoCompleted: (callback: (data: { insightId: string; percentage: number; reason: string }) => void) => void;
+  removeInsightAutoCompletedListener: () => void;
+  onInsightCompletionConfirmationRequest: (callback: (data: { insightId: string; percentage: number }) => void) => void;
+  removeInsightCompletionConfirmationRequestListener: () => void;
   
   // Listen for messages from topbar
   onTopbarMessage: (callback: (type: string, data: any) => void) => void;

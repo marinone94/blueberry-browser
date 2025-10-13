@@ -25,11 +25,10 @@ type LLMProvider = "openai" | "anthropic";
 
 const DEFAULT_MODELS: Record<LLMProvider, string> = {
   openai: "gpt-5-mini",
-  anthropic: "claude-sonnet-4-20250514",
+  anthropic: "claude-sonnet-4-5-20250929",
 };
 
 const MAX_CONTEXT_LENGTH = 4000;
-const DEFAULT_TEMPERATURE = 0.7;
 
 // Helper functions for calculating statistics
 function calculateMean(arr: number[]): number {
@@ -415,7 +414,6 @@ export class LLMClient {
       const result = await streamText({
         model: this.model,
         messages,
-        temperature: DEFAULT_TEMPERATURE,
         maxRetries: 3,
         abortSignal: undefined, // Could add abort controller for cancellation
       });

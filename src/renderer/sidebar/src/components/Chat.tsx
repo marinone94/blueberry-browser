@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
-import { ArrowUp, Plus, Clock, Globe } from 'lucide-react'
+import { ArrowUp, Plus, Clock, Globe, Brain, Bell } from 'lucide-react'
 import { useChat } from '../contexts/ChatContext'
 import { useChatHistory } from '../contexts/ChatHistoryContext'
 import { cn } from '@common/lib/utils'
@@ -266,9 +266,11 @@ const ConversationTurnComponent: React.FC<{
 // Main Chat Component
 interface ChatProps {
     onShowHistory: (type: 'chats' | 'browsing') => void
+    onShowInsights: () => void
+    onShowReminders: () => void
 }
 
-export const Chat: React.FC<ChatProps> = ({ onShowHistory }) => {
+export const Chat: React.FC<ChatProps> = ({ onShowHistory, onShowInsights, onShowReminders }) => {
     const { messages, isLoading, sendMessage, clearChat } = useChat()
     const { loadSessions } = useChatHistory()
     const scrollRef = useAutoScroll(messages)
@@ -338,6 +340,24 @@ export const Chat: React.FC<ChatProps> = ({ onShowHistory }) => {
                         >
                             <Globe className="size-4" />
                             Browsing
+                        </Button>
+                        <Button
+                            onClick={onShowInsights}
+                            title="View proactive insights"
+                            variant="ghost"
+                            size="sm"
+                        >
+                            <Brain className="size-4" />
+                            Insights
+                        </Button>
+                        <Button
+                            onClick={onShowReminders}
+                            title="View reminders"
+                            variant="ghost"
+                            size="sm"
+                        >
+                            <Bell className="size-4" />
+                            Reminders
                         </Button>
                     </div>
                 </div>

@@ -632,6 +632,63 @@ export class UserDataManager {
   }
 
   /**
+   * Populate browsing history from raw activity data
+   * Useful for reconstructing history from synthetic data
+   */
+  async populateHistoryFromActivities(userId: string): Promise<number> {
+    console.log(`[UserDataManager] Populating browsing history from activities for user ${userId}`);
+    
+    try {
+      // Load all activity files
+      const activityDir = this.getRawActivityDir(userId);
+      const files = await fs.readdir(activityDir);
+      const jsonFiles = files.filter(f => f.endsWith('.json')).sort();
+      
+      let processedCount = 0;
+      const existingHistory = await this.loadBrowsingHistory(userId);
+      const existingUrls = new Set(existingHistory.map(h => `${h.url}|${new Date(h.visitedAt).getTime()}`));
+      
+      for (const file of jsonFiles) {
+        const filePath = join(activityDir, file);
+        const content = await fs.readFile(filePath, 'utf-8');
+        const activities = JSON.parse(content) as RawActivityData[];
+        
+        // Process page_visit activities
+        for (const activity of activities) {
+          if (activity.type === 'page_visit' && activity.data.url && activity.data.title) {
+            const timestamp = new Date(activity.timestamp).getTime();
+            const key = `${activity.data.url}|${timestamp}`;
+            
+            // Skip if already exists (avoid duplicates)
+            if (existingUrls.has(key)) {
+              continue;
+            }
+            
+            // Add to history
+            const entry: Omit<BrowsingHistoryEntry, 'id'> = {
+              url: activity.data.url,
+              title: activity.data.title,
+              visitedAt: new Date(activity.timestamp),
+              favicon: undefined,
+              analysisId: undefined
+            };
+            
+            await this.addHistoryEntry(userId, entry);
+            existingUrls.add(key);
+            processedCount++;
+          }
+        }
+      }
+      
+      console.log(`[UserDataManager] Added ${processedCount} history entries from activities`);
+      return processedCount;
+    } catch (error) {
+      console.error(`[UserDataManager] Error populating history from activities:`, error);
+      return 0;
+    }
+  }
+
+  /**
    * Behavioral Profile Management (dummy implementation for now)
    */
   async saveBehavioralProfile(userId: string, profile: BehavioralProfile): Promise<void> {
@@ -1261,5 +1318,112 @@ export class UserDataManager {
       console.error('UserDataManager: Error saving LLM debug log:', error);
       // Don't throw - debug logs should not break the main flow
     }
+  }
+
+  // ============================================================================
+  // REMINDERS MANAGEMENT
+  // ============================================================================
+
+  /**
+   * Get the path to the reminders file for a user
+   */
+  private getRemindersFilePath(userId: string): string {
+    return join(this.usersDir, 'user-data', userId, 'reminders.json');
+  }
+
+  /**
+   * Save a reminder for a user
+   */
+  async saveReminder(userId: string, reminder: any): Promise<void> {
+    const filePath = this.getRemindersFilePath(userId);
+    
+    try {
+      // Load existing reminders
+      let reminders: any[] = [];
+      try {
+        const fileContent = await fs.readFile(filePath, 'utf-8');
+        reminders = JSON.parse(fileContent);
+      } catch {
+        // File doesn't exist yet, start with empty array
+      }
+
+      // Add new reminder
+      reminders.push(reminder);
+
+      // Ensure directory exists
+      await this.ensureDirectoryExists(dirname(filePath));
+
+      // Save back to file
+      await fs.writeFile(filePath, JSON.stringify(reminders, null, 2));
+
+      console.log(`UserDataManager: Saved reminder ${reminder.id} for user ${userId}`);
+    } catch (error) {
+      console.error(`Failed to save reminder for user ${userId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all reminders for a user
+   */
+  async getReminders(userId: string): Promise<any[]> {
+    const filePath = this.getRemindersFilePath(userId);
+    
+    try {
+      const fileContent = await fs.readFile(filePath, 'utf-8');
+      return JSON.parse(fileContent);
+    } catch {
+      // File doesn't exist yet
+      return [];
+    }
+  }
+
+  /**
+   * Update a reminder
+   */
+  async updateReminder(userId: string, reminderId: string, updates: any): Promise<void> {
+    const filePath = this.getRemindersFilePath(userId);
+    
+    try {
+      const reminders = await this.getReminders(userId);
+      const index = reminders.findIndex(r => r.id === reminderId);
+      
+      if (index !== -1) {
+        reminders[index] = { ...reminders[index], ...updates };
+        await fs.writeFile(filePath, JSON.stringify(reminders, null, 2));
+        console.log(`UserDataManager: Updated reminder ${reminderId} for user ${userId}`);
+      }
+    } catch (error) {
+      console.error(`Failed to update reminder ${reminderId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete a reminder
+   */
+  async deleteReminder(userId: string, reminderId: string): Promise<void> {
+    const filePath = this.getRemindersFilePath(userId);
+    
+    try {
+      const reminders = await this.getReminders(userId);
+      const filtered = reminders.filter(r => r.id !== reminderId);
+      
+      await fs.writeFile(filePath, JSON.stringify(filtered, null, 2));
+      console.log(`UserDataManager: Deleted reminder ${reminderId} for user ${userId}`);
+    } catch (error) {
+      console.error(`Failed to delete reminder ${reminderId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Mark a reminder as completed
+   */
+  async completeReminder(userId: string, reminderId: string): Promise<void> {
+    await this.updateReminder(userId, reminderId, { 
+      completed: true, 
+      completedAt: new Date().toISOString() 
+    });
   }
 }
