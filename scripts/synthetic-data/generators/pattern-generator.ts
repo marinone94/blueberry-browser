@@ -7,6 +7,9 @@ import type { LLMContentGenerator } from '../utils/llm-content-generator';
 import pLimit from 'p-limit';
 
 export class PatternGenerator {
+  // Cache for repeated workflows - key: journey name, value: URLs
+  private workflowCache: Map<string, any[]> = new Map();
+  
   constructor(private llm: LLMContentGenerator) {}
 
   /**
@@ -35,9 +38,22 @@ export class PatternGenerator {
   /**
    * Sequential pattern: user follows a goal-oriented journey
    * Example: Shopping research → Compare products → Read reviews → Purchase
+   * 
+   * UPDATED: Now supports repeated workflows for pattern detection
+   * - Some journeys are "repeated workflows" (cached and reused)
+   * - Others are one-off explorations (generated fresh each time)
    */
   private async generateSequentialPattern(startTime: Date, duration: number): Promise<GeneratedActivity[]> {
-    const journeys = [
+    // Repeated workflows - these will be cached and reused to create patterns
+    const repeatedWorkflows = [
+      { name: 'Daily productivity start', steps: 3 },    // Gmail → Calendar → Slack
+      { name: 'Dev workflow check', steps: 3 },          // GitHub → Stack Overflow → Docs
+      { name: 'Morning news routine', steps: 4 },        // News sites
+      { name: 'Project management flow', steps: 3 },     // Jira → Confluence → Slack
+    ];
+    
+    // One-off explorations - these generate new URLs each time
+    const explorativeJourneys = [
       'Shopping for a laptop',
       'Planning a vacation',
       'Learning a new programming language',
@@ -45,11 +61,32 @@ export class PatternGenerator {
       'Researching a health condition',
       'Comparing insurance plans',
     ];
-
-    const journey = journeys[Math.floor(Math.random() * journeys.length)];
-    const steps = Math.min(8, Math.floor(duration / (5 * 60 * 1000))); // ~5 min per step
     
-    const urls = await this.llm.generateBrowsingJourney(journey, steps);
+    // 60% chance of repeated workflow, 40% chance of explorative journey
+    const isRepeatedWorkflow = Math.random() < 0.6;
+    
+    let urls: any[];
+    
+    if (isRepeatedWorkflow) {
+      // Use a repeated workflow - cache and reuse the same URLs
+      const workflow = repeatedWorkflows[Math.floor(Math.random() * repeatedWorkflows.length)];
+      
+      if (!this.workflowCache.has(workflow.name)) {
+        // First time generating this workflow - create and cache it
+        console.log(`[GSD] Creating new repeated workflow: "${workflow.name}"`);
+        const generatedUrls = await this.llm.generateBrowsingJourney(workflow.name, workflow.steps);
+        this.workflowCache.set(workflow.name, generatedUrls);
+      }
+      
+      urls = this.workflowCache.get(workflow.name)!;
+      console.log(`[GSD] Reusing workflow: "${workflow.name}" (${urls.length} steps)`);
+    } else {
+      // Explorative journey - generate new URLs each time
+      const journey = explorativeJourneys[Math.floor(Math.random() * explorativeJourneys.length)];
+      const steps = Math.min(8, Math.floor(duration / (5 * 60 * 1000))); // ~5 min per step
+      urls = await this.llm.generateBrowsingJourney(journey, steps);
+    }
+    
     const activities: GeneratedActivity[] = [];
 
     for (let i = 0; i < urls.length; i++) {

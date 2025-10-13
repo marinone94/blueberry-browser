@@ -36,6 +36,25 @@ interface SessionTab {
   sessionId: string
 }
 
+interface SavedWorkflow {
+  id: string
+  userId: string
+  name: string
+  description: string
+  createdAt: string
+  createdFrom: string
+  steps: Array<{
+    url: string
+    title: string
+    category: string
+    subcategory: string
+  }>
+  lastUsed: string | null
+  useCount: number
+  isPinned?: boolean
+  tags?: string[]
+}
+
 interface InsightsContextType {
   insights: ProactiveInsight[]
   isLoading: boolean
@@ -47,6 +66,15 @@ interface InsightsContextType {
   markCompleted: (insightId: string) => Promise<{ success: boolean; message?: string; error?: string }>
   getSessionTabs: (insightId: string) => Promise<{ success: boolean; tabs: SessionTab[]; totalTabs: number; openedTabs: string[]; error?: string }>
   openAndTrackTab: (insightId: string, url: string) => Promise<{ success: boolean; message?: string; completionPercentage?: number; error?: string }>
+  
+  // Workflow automation
+  savedWorkflows: SavedWorkflow[]
+  isLoadingWorkflows: boolean
+  saveAsAgent: (insightId: string, customName?: string) => Promise<{ success: boolean; workflow?: SavedWorkflow; error?: string }>
+  executeWorkflow: (workflowId: string) => Promise<{ success: boolean; message?: string; error?: string }>
+  deleteWorkflow: (workflowId: string) => Promise<{ success: boolean; error?: string }>
+  renameWorkflow: (workflowId: string, newName: string) => Promise<{ success: boolean; error?: string }>
+  refreshWorkflows: () => Promise<void>
 }
 
 const InsightsContext = createContext<InsightsContextType | undefined>(undefined)
@@ -56,10 +84,15 @@ export const InsightsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [isLoading, setIsLoading] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  
+  // Workflow automation state
+  const [savedWorkflows, setSavedWorkflows] = useState<SavedWorkflow[]>([])
+  const [isLoadingWorkflows, setIsLoadingWorkflows] = useState(false)
 
-  // Load cached insights on mount
+  // Load cached insights and workflows on mount
   useEffect(() => {
     loadInsights()
+    loadWorkflows()
   }, [])
 
   const loadInsights = useCallback(async () => {
@@ -154,6 +187,83 @@ export const InsightsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   }, [loadInsights])
 
+  // Workflow automation methods
+  const loadWorkflows = useCallback(async () => {
+    setIsLoadingWorkflows(true)
+    try {
+      const workflows = await window.sidebarAPI.getSavedWorkflows()
+      setSavedWorkflows(workflows)
+    } catch (err) {
+      console.error('Failed to load workflows:', err)
+    } finally {
+      setIsLoadingWorkflows(false)
+    }
+  }, [])
+
+  const saveAsAgent = useCallback(async (insightId: string, customName?: string) => {
+    try {
+      const result = await window.sidebarAPI.saveWorkflowAsAgent(insightId, customName)
+      
+      if (result.success) {
+        await loadWorkflows() // Refresh list
+      }
+      
+      return result
+    } catch (err) {
+      console.error('Failed to save workflow:', err)
+      return { success: false, error: 'Failed to save workflow' }
+    }
+  }, [loadWorkflows])
+
+  const executeWorkflow = useCallback(async (workflowId: string) => {
+    try {
+      const result = await window.sidebarAPI.executeWorkflow(workflowId)
+      
+      if (result.success) {
+        await loadWorkflows() // Refresh to update lastUsed and useCount
+      }
+      
+      return result
+    } catch (err) {
+      console.error('Failed to execute workflow:', err)
+      return { success: false, error: 'Failed to execute workflow' }
+    }
+  }, [loadWorkflows])
+
+  const deleteWorkflow = useCallback(async (workflowId: string) => {
+    try {
+      const result = await window.sidebarAPI.deleteWorkflow(workflowId)
+      
+      if (result.success) {
+        await loadWorkflows() // Refresh list
+      }
+      
+      return result
+    } catch (err) {
+      console.error('Failed to delete workflow:', err)
+      return { success: false, error: 'Failed to delete workflow' }
+    }
+  }, [loadWorkflows])
+
+  const renameWorkflow = useCallback(async (workflowId: string, newName: string) => {
+    try {
+      const result = await window.sidebarAPI.renameWorkflow(workflowId, newName)
+      
+      if (result.success) {
+        await loadWorkflows() // Refresh to show new name
+      }
+      
+      return result
+    } catch (err) {
+      console.error('Failed to rename workflow:', err)
+      return { success: false, error: 'Failed to rename workflow' }
+    }
+  }, [loadWorkflows])
+
+  const refreshWorkflows = useCallback(async () => {
+    await loadWorkflows()
+  }, [loadWorkflows])
+
   return (
     <InsightsContext.Provider
       value={{
@@ -167,6 +277,13 @@ export const InsightsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         markCompleted,
         getSessionTabs,
         openAndTrackTab,
+        savedWorkflows,
+        isLoadingWorkflows,
+        saveAsAgent,
+        executeWorkflow,
+        deleteWorkflow,
+        renameWorkflow,
+        refreshWorkflows,
       }}
     >
       {children}

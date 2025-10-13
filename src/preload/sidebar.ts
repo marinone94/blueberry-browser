@@ -139,6 +139,18 @@ const sidebarAPI = {
     electronAPI.ipcRenderer.removeAllListeners("reminder-set");
   },
   
+  // Workflow automation
+  saveWorkflowAsAgent: (insightId: string, customName?: string) => 
+    electronAPI.ipcRenderer.invoke("workflow:save-as-agent", insightId, customName),
+  getSavedWorkflows: () => 
+    electronAPI.ipcRenderer.invoke("workflow:get-all"),
+  executeWorkflow: (workflowId: string) => 
+    electronAPI.ipcRenderer.invoke("workflow:execute", workflowId),
+  deleteWorkflow: (workflowId: string) => 
+    electronAPI.ipcRenderer.invoke("workflow:delete", workflowId),
+  renameWorkflow: (workflowId: string, newName: string) => 
+    electronAPI.ipcRenderer.invoke("workflow:rename", workflowId, newName),
+  
   // Listen for insight auto-completion events
   onInsightAutoCompleted: (callback: (data: { insightId: string; percentage: number; reason: string }) => void) => {
     electronAPI.ipcRenderer.on("insight-auto-completed", (_, data) => callback(data));

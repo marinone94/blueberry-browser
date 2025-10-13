@@ -5,6 +5,7 @@ Generate realistic browsing history and activity data for testing Blueberry Brow
 ## Features
 
 - **Multiple Browsing Patterns**: Sequential journeys, thematic browsing, random exploration, and temporal routines
+- **Repeated Workflows**: Automatically generates recurring workflow patterns for testing workflow automation and agent creation (60% of sequential patterns are repeated)
 - **Realistic Timing**: Peak hours, weekend variations, natural dwell times
 - **AI-Generated Content**: Uses LLM to generate realistic URLs, titles, and page content
 - **Parallel Processing**: Optimized with `p-limit` for fast concurrent LLM API calls
@@ -76,6 +77,55 @@ const urls = await Promise.all(
     limit(async () => await this.llm.generateURL(...))
   )
 );
+```
+
+## Repeated Workflows for Pattern Detection
+
+GSD now intelligently generates **repeated workflows** to enable testing of the workflow automation feature:
+
+### How It Works
+
+- **60% of sequential patterns** are "repeated workflows" (cached and reused)
+- **40% remain explorative** journeys (generated fresh each time)
+
+### Repeated Workflow Types
+
+The following workflows are cached and reused across multiple sessions:
+
+1. **Daily productivity start** (3 steps) - Gmail → Calendar → Slack
+2. **Dev workflow check** (3 steps) - GitHub → Stack Overflow → Docs
+3. **Morning news routine** (4 steps) - Multiple news sources
+4. **Project management flow** (3 steps) - Jira → Confluence → Slack
+
+### Why This Matters
+
+The proactive insights system detects **workflow patterns** when:
+- The same URL sequence appears ≥2 times
+- Categories/subcategories/brands match with similarity >0.7
+
+Without repeated workflows, every session would be unique and no workflow patterns would be detected. Now, you'll see:
+- **Workflow insights** appear in "Detected Patterns" tab
+- "Save as Agent" button on workflow cards
+- Ability to test the full workflow automation feature
+
+### Example
+
+```bash
+# Generate 7 days of data with repeated workflows
+pnpm gsd --scenario work --days 7
+
+# The "Dev workflow check" will appear multiple times across different days
+# After analysis, you'll see a workflow insight you can save as an agent
+```
+
+### Console Output
+
+When generating data, you'll see logs indicating workflow caching:
+
+```
+[GSD] Creating new repeated workflow: "Daily productivity start"
+[GSD] Reusing workflow: "Daily productivity start" (3 steps)
+[GSD] Reusing workflow: "Dev workflow check" (3 steps)
 ```
 
 ## Pre-built Scenarios
