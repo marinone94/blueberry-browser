@@ -844,7 +844,6 @@ export class EventManager {
   }
 
   private handleInsightsEvents(): void {
-
     // Analyze user behavior and generate insights
     ipcMain.handle("analyze-behavior", async () => {
       const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
