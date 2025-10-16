@@ -87,12 +87,24 @@ For comprehensive development guidance, see **[AGENTS.md](./AGENTS.md#developmen
 - Click-to-navigate with existing tab detection
 - Manual refresh and bulk clear options
 
+✅ **Activity Tracking & Content Analysis**
+- Comprehensive 13-type activity tracking (clicks, scrolls, navigation, etc.)
+- AI-powered content analysis with image descriptions
+- Automatic categorization and language detection
+- Intelligent deduplication with HTML/screenshot hashing
+- Cookie dialog detection and handling
+
+✅ **Vector Search**
+- Local semantic search using LanceDB + transformers.js
+- Embeddings for page descriptions, titles, and screenshots
+- Smart search across browsing and chat history
+- Hybrid search: string matching with semantic fallback
+
 ✅ **AI Proactive Insights**
-- LLM-powered behavior analysis detecting patterns across 7 days of activity
-- Automatic workflow detection (recurring tab sequences)
+- LLM-based session segmentation (context-aware, no time limits)
+- Multi-strategy pattern detection: workflows, research topics, abandoned tasks, temporal habits
+- Automatic workflow detection with one-click resumption
 - Research topic summaries with key findings
-- Abandoned task identification with resume suggestions
-- Time-based habit recognition
 - One-click action execution from insights panel
 
 ### 🚧 Development Roadmap
@@ -101,7 +113,7 @@ Currently .gitignored as the repo is public.
 
 ### 🔮 Future Vision
 Seamless UX on a browser designed from the ground up for the Intelligence Age.
-A browser that anticipates your needs, automate anything possible, and helps you stay on track when instant gratification needs kick in to dereail.
+A browser that anticipates your needs, automate anything possible, and helps you stay on track when instant gratification needs kick in to derail.
 Something that works for you, not to exploit you. Something that is always on your side.
 A true companion, something that you can trust:
 

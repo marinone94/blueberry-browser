@@ -58,8 +58,14 @@ This is because docs are included in the context by the IDE agent, and because t
 **ENSURE to strictly adhere to the user's latest instructions, and not to propose or implement more than asked.**
 
 ### Check the codebase
-Always check the codebase and the docs under `docs/repo` before designing a new feature or making changes to the existing code.
+Always check the codebase and the docs under `docs/` before designing a new feature or making changes to the existing code.
 **ENSURE to check the codebase and the docs before designing a new feature to keep the codebase consistent and as simple as possible.**
+
+Key documentation locations:
+- `docs/architecture.md` - System architecture and data flows
+- `docs/features/` - Detailed feature documentation
+- `docs/files.md` - File structure and dependencies
+- `docs/ROADMAP.md` - Development progress and planning
 
 ### Ask for clarification
 USer prompts can be ambiguous, or incomplete.
@@ -99,10 +105,11 @@ USer prompts can be ambiguous, or incomplete.
 - **Security first**: All new IPC channels should use secure invoke/handle pattern
 
 ### Keeping Docs Updated
-- **Architecture changes**: Update ARCHITECTURE.md process flows
-- **New files**: Add entries to FILES.md with proper dependency analysis
-- **New features**: Document complete flows in FEATURES.md
+- **Architecture changes**: Update `docs/architecture.md` with process flows
+- **New files**: Add entries to `docs/files.md` with proper dependency analysis
+- **New features**: Document complete flows in `docs/features/` directory
 - **API changes**: Update preload script type definitions
+- **Roadmap updates**: Keep `docs/ROADMAP.md` current with completed/planned work
 
 ### Contributing Documentation
 - **Be comprehensive**: Include all functions involved in flows
@@ -147,15 +154,48 @@ const api = {
 - Consider token limits and cost optimization
 
 ### Browser Features
-- Basic tab management and navigation
-- Page content extraction for AI context
-- Chat interface with AI integration and streaming responses
-- Enhanced session-based chat history with metadata tracking
-- Multi-user account system with complete data isolation
-- Screenshot and JavaScript execution capabilities
-- Per-user browsing history with search and management
-- Smart tab navigation from history entries
-- Comprehensive activity tracking with 13 activity types
+
+**Core Browsing**:
+- Multi-tab management with per-user session isolation
+- Page content extraction with AI-powered analysis
+- Screenshot capture and JavaScript execution in tabs
+
+**AI & Chat**:
+- OpenAI/Anthropic integration with streaming responses
+- Session-based chat history with metadata tracking
+- Vector search across chat conversations
+
+**User Accounts**:
+- Multiple user profiles with complete data isolation
+- Guest mode for incognito browsing
+- Per-user session partitioning (cookies, cache, localStorage)
+
+**Activity Tracking**:
+- 13 comprehensive activity types (navigation, interaction, context, features)
+- Buffered collection with daily file rotation
+- Per-user activity isolation
+
+**Content Analysis**:
+- AI-powered page descriptions and image analysis
+- Automatic categorization and language detection
+- Smart deduplication using HTML/screenshot hashing
+- Cookie dialog detection
+
+**Browsing History**:
+- Per-user history with timestamps and deduplication
+- Smart search by title, URL, or semantic content
+- Click-to-navigate with existing tab detection
+
+**Vector Search**:
+- Local embeddings using transformers.js (no API calls)
+- LanceDB for efficient semantic search
+- Hybrid search: string matching + semantic fallback
+- Automatic cleanup on history deletion
+
+**Proactive Insights**:
+- LLM-based session segmentation (context-aware)
+- Multi-strategy pattern detection (workflows, research, abandoned tasks, habits)
+- One-click action execution and workflow resumption
 
 ## Implementation Guidelines
 - **Incremental Development**: Build MVPs, iterate based on user behavior
