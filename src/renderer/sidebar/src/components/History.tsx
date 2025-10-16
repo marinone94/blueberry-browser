@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Clock, Search, Trash2, X, ExternalLink, RefreshCw } from 'lucide-react'
+import { Globe, Search, Trash2, X, ExternalLink, RefreshCw } from 'lucide-react'
 import { useHistory } from '../contexts/HistoryContext'
 import { Button } from '@common/components/Button'
 import { cn } from '@common/lib/utils'
@@ -171,7 +171,7 @@ export const History: React.FC<HistoryProps> = ({ onClose }) => {
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-border">
         <div className="flex items-center gap-2">
-          <Clock className="h-5 w-5 text-muted-foreground" />
+          <Globe className="h-5 w-5 text-muted-foreground" />
           <h2 className="text-lg font-semibold">History</h2>
         </div>
         <Button variant="ghost" size="sm" onClick={onClose}>
@@ -231,7 +231,7 @@ export const History: React.FC<HistoryProps> = ({ onClose }) => {
           </div>
         ) : history.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-32 text-center p-4">
-            <Clock className="h-12 w-12 text-muted-foreground mb-2" />
+            <Globe className="h-12 w-12 text-muted-foreground mb-2" />
             <p className="text-sm text-muted-foreground">
               {searchQuery ? 'No results found' : 'No browsing history yet'}
             </p>
