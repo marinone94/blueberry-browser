@@ -53,12 +53,33 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                         isStreaming: false
                     }))
                     setMessages(convertedMessages)
+                } else {
+                    setMessages([])
                 }
             } catch (error) {
-                console.error('Failed to load messages:', error)
+                console.error('[ChatContext] Failed to load messages:', error)
+                setMessages([]) // Clear messages on error
             }
         }
+        
+        console.log('[ChatContext] Initial mount, loading messages...')
         loadMessages()
+
+        // Listen for user changes and reload messages
+        const handleUserChange = () => {
+            console.log('[ChatContext] User changed, clearing and reloading messages...')
+            // Immediately clear messages to prevent flash of old content
+            setMessages([])
+            setIsLoading(false) // Stop any ongoing loading
+            // Then load new user's messages
+            loadMessages()
+        }
+
+        window.sidebarAPI.onUserChanged(handleUserChange)
+
+        return () => {
+            window.sidebarAPI.removeUserChangedListener()
+        }
     }, [])
 
     const sendMessage = useCallback(async (content: string) => {

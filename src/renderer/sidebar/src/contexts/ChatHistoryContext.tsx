@@ -178,10 +178,32 @@ export const ChatHistoryProvider: React.FC<{ children: React.ReactNode }> = ({ c
         await loadSessions()
     }, [loadSessions])
 
-    // Load initial data
+    // Load initial data on mount only
     useEffect(() => {
+        console.log('[ChatHistoryContext] Initial mount, loading sessions...')
         loadSessions()
-    }, [loadSessions])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []) // Only run once on mount
+
+    // Listen for user changes and reload sessions
+    useEffect(() => {
+        const handleUserChange = () => {
+            console.log('[ChatHistoryContext] User changed, clearing and reloading sessions...')
+            // Immediately clear sessions to prevent flash of old content
+            setSessions([])
+            setCurrentSessionId(null)
+            setIsLoading(false) // Stop any ongoing loading to prevent flash
+            // Then load new user's sessions
+            loadSessions()
+        }
+
+        window.sidebarAPI.onUserChanged(handleUserChange)
+
+        return () => {
+            window.sidebarAPI.removeUserChangedListener()
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []) // loadSessions is stable, no need to include it
 
     const value: ChatHistoryContextType = {
         sessions,

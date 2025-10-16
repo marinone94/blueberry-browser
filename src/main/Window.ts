@@ -1,14 +1,20 @@
 import { BaseWindow, shell } from "electron";
-import { Tab, type HistoryCallback } from "./Tab";
-import { TopBar } from "./TopBar";
-import { SideBar } from "./SideBar";
-import { UserAccountManager, type TabSwitchOptions } from "./UserAccountManager";
-import { UserDataManager, type UserTabState } from "./UserDataManager";
-import { ActivityCollector } from "./ActivityCollector";
-import { ContentAnalyzer } from "./ContentAnalyzer";
-import { CategoryManager } from "./CategoryManager";
-import { VectorSearchManager } from "./VectorSearchManager";
-import { ProactiveInsightsManager } from "./ProactiveInsightsManager";
+import { Tab, type HistoryCallback } from "./features/tabs";
+import { TopBar } from "./ui/TopBar";
+import { SideBar } from "./ui/SideBar";
+import { UserAccountManager, type TabSwitchOptions } from "./features/users/UserAccountManager";
+import { type UserTabState } from "./features/users/storage";
+import { ActivityCollector } from "./features/activity";
+import { ActivityStorage } from "./features/activity/storage";
+import { ContentAnalyzer } from "./features/content";
+import { ContentStorage } from "./features/content/storage";
+import { HistoryStorage } from "./features/history/storage";
+import { InsightsStorage } from "./features/insights/storage";
+import { ChatStorage } from "./features/ai/storage";
+import { UserStorage } from "./features/users/storage";
+import { CategoryManager } from "./features/content/CategoryManager";
+import { VectorSearchManager } from "./features/search/VectorSearchManager";
+import { ProactiveInsightsManager } from "./features/insights/ProactiveInsightsManager";
 
 export class Window {
   private _baseWindow!: BaseWindow;
@@ -18,7 +24,16 @@ export class Window {
   private tabCounter: number = 0;
   private _topBar!: TopBar;
   private _sideBar!: SideBar;
-  private _userDataManager!: UserDataManager;
+  
+  // Storage classes - feature-owned data layers
+  private _chatStorage!: ChatStorage;
+  private _historyStorage!: HistoryStorage;
+  private _activityStorage!: ActivityStorage;
+  private _contentStorage!: ContentStorage;
+  private _userStorage!: UserStorage;
+  private _insightsStorage!: InsightsStorage;
+  
+  // Services and managers
   private _userAccountManager!: UserAccountManager;
   private _activityCollector?: ActivityCollector;
   private _contentAnalyzer!: ContentAnalyzer;
@@ -50,9 +65,16 @@ export class Window {
 
     this._baseWindow.setMinimumSize(1000, 800);
 
+    // Initialize storage classes (data layer)
+    this._chatStorage = new ChatStorage();
+    this._historyStorage = new HistoryStorage();
+    this._activityStorage = new ActivityStorage();
+    this._contentStorage = new ContentStorage();
+    this._userStorage = new UserStorage();
+    this._insightsStorage = new InsightsStorage();
+
     // Initialize user management
-    this._userDataManager = new UserDataManager();
-    this._userAccountManager = new UserAccountManager(this._userDataManager);
+    this._userAccountManager = new UserAccountManager(this._userStorage);
     
     // Wait for user accounts to initialize before proceeding
     await this.waitForUserAccountsInitialization();
@@ -66,7 +88,9 @@ export class Window {
 
     // Initialize proactive insights manager
     this._proactiveInsightsManager = new ProactiveInsightsManager(
-      this._userDataManager,
+      this._insightsStorage,
+      this._activityStorage,
+      this._contentStorage,
       this._vectorSearchManager
     );
     
@@ -75,7 +99,8 @@ export class Window {
 
     // Initialize content analyzer
     this._contentAnalyzer = new ContentAnalyzer(
-      this._userDataManager, 
+      this._contentStorage,
+      this._historyStorage,
       this._categoryManager,
       this._vectorSearchManager
     );
@@ -156,7 +181,7 @@ export class Window {
       }
       
       // Create new collector for current user
-      this._activityCollector = new ActivityCollector(currentUser.id, this._userDataManager);
+      this._activityCollector = new ActivityCollector(currentUser.id, this._activityStorage);
       console.log(`ActivityCollector initialized for user: ${currentUser.name} (${currentUser.id})`);
       
       // Set collector for all existing tabs
@@ -220,7 +245,7 @@ export class Window {
       const currentUser = this._userAccountManager.getCurrentUser();
       if (currentUser) {
         try {
-          const historyEntry = await this._userDataManager.addHistoryEntry(currentUser.id, entry);
+          const historyEntry = await this._historyStorage.addHistoryEntry(currentUser.id, entry);
           // Return the history entry so Tab can use it
           return historyEntry;
         } catch (error) {
@@ -469,8 +494,29 @@ export class Window {
     return this._activityCollector;
   }
 
-  get userDataManager(): UserDataManager {
-    return this._userDataManager;
+  // Storage getters - provide access to feature-owned storage
+  get chatStorage(): ChatStorage {
+    return this._chatStorage;
+  }
+
+  get historyStorage(): HistoryStorage {
+    return this._historyStorage;
+  }
+
+  get activityStorage(): ActivityStorage {
+    return this._activityStorage;
+  }
+
+  get contentStorage(): ContentStorage {
+    return this._contentStorage;
+  }
+
+  get userStorage(): UserStorage {
+    return this._userStorage;
+  }
+
+  get insightsStorage(): InsightsStorage {
+    return this._insightsStorage;
   }
   
   get vectorSearchManager(): VectorSearchManager {

@@ -2,8 +2,11 @@ import { generateText } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { promises as fs } from 'fs';
 import { join } from 'path';
-import type { UserDataManager } from './UserDataManager';
-import type { VectorSearchManager } from './VectorSearchManager';
+import { app } from 'electron';
+import type { InsightsStorage } from './storage';
+import type { ActivityStorage } from '../activity/storage';
+import type { ContentStorage } from '../content/storage';
+import type { VectorSearchManager } from '../search/VectorSearchManager';
 
 // ============================================================================
 // INTERFACES
@@ -250,18 +253,30 @@ interface SavedWorkflow {
  * - Real-time insight generation and triggering
  */
 export class ProactiveInsightsManager {
-  private userDataManager: UserDataManager;
+  // @ts-ignore - Reserved for future use when ProactiveInsightsManager is refactored
+  private _insightsStorage: InsightsStorage;
+  // @ts-ignore - Reserved for future use when ProactiveInsightsManager is refactored
+  private _activityStorage: ActivityStorage;
+  // @ts-ignore - Reserved for future use when ProactiveInsightsManager is refactored
+  private _contentStorage: ContentStorage;
+  private usersDir: string;
   private patternsCache: Map<string, Pattern[]> = new Map(); // userId -> patterns
   private insightsCache: Map<string, ProactiveInsight[]> = new Map(); // userId -> insights
   private autoCompletionTimers: Map<string, NodeJS.Timeout> = new Map(); // insightId -> timer
   private window: any; // Reference to Window for sending IPC events
   
   constructor(
-    userDataManager: UserDataManager,
+    insightsStorage: InsightsStorage,
+    activityStorage: ActivityStorage,
+    contentStorage: ContentStorage,
     _vectorSearchManager: VectorSearchManager // Prefix with _ to indicate intentionally unused for now
   ) {
-    this.userDataManager = userDataManager;
-    // vectorSearchManager reserved for future use (similarity computations)
+    this._insightsStorage = insightsStorage;
+    this._activityStorage = activityStorage;
+    this._contentStorage = contentStorage;
+    this.usersDir = join(app.getPath("userData"), "users");
+    // Storage classes reserved for future use when ProactiveInsightsManager is refactored
+    // Currently it accesses files directly
   }
 
   /**
@@ -2031,7 +2046,7 @@ Output JSON:
    * Load user activities from raw activity logs
    */
   private async loadUserActivities(userId: string): Promise<Activity[]> {
-    const userDataPath = join(this.userDataManager['usersDir'], 'user-data', userId, 'raw-activity');
+    const userDataPath = join(this.usersDir, 'user-data', userId, 'raw-activity');
     
     try {
       const files = await fs.readdir(userDataPath);
@@ -2059,7 +2074,7 @@ Output JSON:
    * Load content analyses
    */
   private async loadContentAnalyses(userId: string): Promise<ContentAnalysis[]> {
-    const analysisPath = join(this.userDataManager['usersDir'], 'user-data', userId, 'content-analysis');
+    const analysisPath = join(this.usersDir, 'user-data', userId, 'content-analysis');
     
     try {
       const files = await fs.readdir(analysisPath);
@@ -2151,14 +2166,14 @@ Output JSON:
    * Get path to insights file
    */
   private getInsightsFilePath(userId: string): string {
-    return join(this.userDataManager['usersDir'], 'user-data', userId, 'insights.json');
+    return join(this.usersDir, 'user-data', userId, 'insights.json');
   }
 
   /**
    * Get path to generation metadata file
    */
   private getMetadataFilePath(userId: string): string {
-    return join(this.userDataManager['usersDir'], 'user-data', userId, 'insights-metadata.json');
+    return join(this.usersDir, 'user-data', userId, 'insights-metadata.json');
   }
 
   /**
@@ -2247,7 +2262,7 @@ Output JSON:
     
     try {
       // Ensure directory exists
-      await fs.mkdir(join(this.userDataManager['usersDir'], 'user-data', userId), { recursive: true });
+      await fs.mkdir(join(this.usersDir, 'user-data', userId), { recursive: true });
       
       // Save insights
       await fs.writeFile(filePath, JSON.stringify(insights, null, 2));
@@ -2282,7 +2297,7 @@ Output JSON:
     
     try {
       // Ensure directory exists
-      await fs.mkdir(join(this.userDataManager['usersDir'], 'user-data', userId), { recursive: true });
+      await fs.mkdir(join(this.usersDir, 'user-data', userId), { recursive: true });
       
       // Save metadata
       await fs.writeFile(filePath, JSON.stringify(metadata, null, 2));
@@ -2298,7 +2313,7 @@ Output JSON:
    * Get path to saved workflows file
    */
   private getSavedWorkflowsFilePath(userId: string): string {
-    return join(this.userDataManager['usersDir'], 'user-data', userId, 'saved-workflows.json');
+    return join(this.usersDir, 'user-data', userId, 'saved-workflows.json');
   }
 
   /**
@@ -2331,7 +2346,7 @@ Output JSON:
     
     try {
       // Ensure directory exists
-      await fs.mkdir(join(this.userDataManager['usersDir'], 'user-data', userId), { recursive: true });
+      await fs.mkdir(join(this.usersDir, 'user-data', userId), { recursive: true });
       
       // Save workflows
       await fs.writeFile(filePath, JSON.stringify(workflows, null, 2));

@@ -1,0 +1,1 @@
+export { BaseStorage } from './BaseStorage';

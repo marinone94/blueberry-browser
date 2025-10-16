@@ -26,6 +26,19 @@ export const Reminders: React.FC<RemindersProps> = ({ onClose }) => {
 
   useEffect(() => {
     loadReminders()
+
+    // Listen for user changes and reload reminders
+    const handleUserChange = () => {
+      console.log('[Reminders] User changed, reloading reminders...')
+      setReminders([]) // Clear current reminders immediately
+      loadReminders()
+    }
+
+    window.sidebarAPI.onUserChanged(handleUserChange)
+
+    return () => {
+      window.sidebarAPI.removeUserChangedListener()
+    }
   }, [])
 
   const loadReminders = async () => {

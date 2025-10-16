@@ -4,9 +4,9 @@ import { openai } from "@ai-sdk/openai";
 import { anthropic } from "@ai-sdk/anthropic";
 import * as dotenv from "dotenv";
 import { join } from "path";
-import type { Window } from "./Window";
-import type { UserAccountManager } from "./UserAccountManager";
-import type { StreamingMetrics } from "./UserDataManager";
+import type { Window } from "../../Window";
+import type { UserAccountManager } from "../users/UserAccountManager";
+import type { StreamingMetrics } from "./storage";
 
 // Load environment variables from .env file
 dotenv.config({ path: join(__dirname, "../../.env") });
@@ -96,11 +96,11 @@ export class LLMClient {
     this.currentUserId = currentUser.id;
     try {
       // Load current session ID
-      this.currentSessionId = await this.window.userDataManager.getCurrentSessionId(currentUser.id);
+      this.currentSessionId = await this.window.chatStorage.getCurrentSessionId(currentUser.id);
       
       // Load messages from enhanced chat history
       if (this.currentSessionId) {
-        const sessionMessages = await this.window.userDataManager.getSessionMessages(currentUser.id, this.currentSessionId);
+        const sessionMessages = await this.window.chatStorage.getSessionMessages(currentUser.id, this.currentSessionId);
         this.messages = sessionMessages.map(msg => {
           const coreMessage: any = {
             role: msg.role,
@@ -138,7 +138,7 @@ export class LLMClient {
     // If we don't have a current session, create one
     if (!this.currentSessionId) {
       const contextUrl = this.window.activeTab?.url;
-      this.currentSessionId = await this.window.userDataManager.createChatSession(
+      this.currentSessionId = await this.window.chatStorage.createChatSession(
         this.currentUserId,
         contextUrl
       );
@@ -249,7 +249,7 @@ export class LLMClient {
 
       // Save user message to chat history
       if (this.currentUserId && this.currentSessionId) {
-        await this.window?.userDataManager.addChatMessage(
+        await this.window?.chatStorage.addChatMessage(
           this.currentUserId,
           userMessage,
           this.currentSessionId,
@@ -312,7 +312,7 @@ export class LLMClient {
 
     try {
       // Load session messages with full metadata
-      const sessionMessages = await this.window.userDataManager.getSessionMessages(
+      const sessionMessages = await this.window.chatStorage.getSessionMessages(
         this.currentUserId,
         this.currentSessionId
       );
@@ -508,7 +508,7 @@ export class LLMClient {
 
     // Save assistant message to chat history with streaming metrics
     if (this.currentUserId && this.currentSessionId) {
-      await this.window?.userDataManager.addChatMessage(
+      await this.window?.chatStorage.addChatMessage(
         this.currentUserId,
         this.messages[messageIndex],
         this.currentSessionId,

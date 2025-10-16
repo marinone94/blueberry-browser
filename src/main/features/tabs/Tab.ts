@@ -1,6 +1,6 @@
 import { NativeImage, WebContentsView } from "electron";
-import type { ActivityCollector } from "./ActivityCollector";
-import type { ContentAnalyzer } from "./ContentAnalyzer";
+import type { ActivityCollector } from "../activity/ActivityCollector";
+import type { ContentAnalyzer } from "../content/ContentAnalyzer";
 
 export type HistoryCallback = (entry: {
   url: string;

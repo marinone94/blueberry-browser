@@ -93,6 +93,22 @@ export const InsightsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   useEffect(() => {
     loadInsights()
     loadWorkflows()
+
+    // Listen for user changes and reload data
+    const handleUserChange = () => {
+      console.log('[InsightsContext] User changed, reloading insights and workflows...')
+      setInsights([])
+      setSavedWorkflows([])
+      loadInsights()
+      loadWorkflows()
+    }
+
+    window.sidebarAPI.onUserChanged(handleUserChange)
+
+    return () => {
+      window.sidebarAPI.removeUserChangedListener()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const loadInsights = useCallback(async () => {

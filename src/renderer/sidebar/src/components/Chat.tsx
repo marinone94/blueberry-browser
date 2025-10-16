@@ -272,7 +272,7 @@ interface ChatProps {
 
 export const Chat: React.FC<ChatProps> = ({ onShowHistory, onShowInsights, onShowReminders }) => {
     const { messages, isLoading, sendMessage, clearChat } = useChat()
-    const { loadSessions } = useChatHistory()
+    const { sessions, loadSessions } = useChatHistory()
     const scrollRef = useAutoScroll(messages)
     
     const handleShowChats = async () => {
@@ -321,17 +321,19 @@ export const Chat: React.FC<ChatProps> = ({ onShowHistory, onShowInsights, onSho
                         )}
                     </div>
                     
-                    {/* History Buttons - Always visible on the right */}
+                    {/* History Buttons - Right side */}
                     <div className="flex items-center gap-2">
-                        <Button
-                            onClick={handleShowChats}
-                            title="View chat history"
-                            variant="ghost"
-                            size="sm"
-                        >
-                            <Clock className="size-4" />
-                            Chats
-                        </Button>
+                        {/* Only show chat history button when there are sessions */}
+                        {sessions.length > 0 && (
+                            <Button
+                                onClick={handleShowChats}
+                                title="View chat history"
+                                variant="ghost"
+                                size="sm"
+                            >
+                                <Clock className="size-4" />
+                            </Button>
+                        )}
                         <Button
                             onClick={() => onShowHistory('browsing')}
                             title="View browsing history"
@@ -339,7 +341,6 @@ export const Chat: React.FC<ChatProps> = ({ onShowHistory, onShowInsights, onSho
                             size="sm"
                         >
                             <Globe className="size-4" />
-                            Browsing
                         </Button>
                         <Button
                             onClick={onShowInsights}
@@ -348,7 +349,6 @@ export const Chat: React.FC<ChatProps> = ({ onShowHistory, onShowInsights, onSho
                             size="sm"
                         >
                             <Brain className="size-4" />
-                            Insights
                         </Button>
                         <Button
                             onClick={onShowReminders}
@@ -357,7 +357,6 @@ export const Chat: React.FC<ChatProps> = ({ onShowHistory, onShowInsights, onSho
                             size="sm"
                         >
                             <Bell className="size-4" />
-                            Reminders
                         </Button>
                     </div>
                 </div>

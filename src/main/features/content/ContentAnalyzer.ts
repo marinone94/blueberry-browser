@@ -4,10 +4,11 @@ import { join } from 'path';
 import { app } from 'electron';
 import { streamText } from 'ai';
 import { openai } from '@ai-sdk/openai';
-import type { UserDataManager } from './UserDataManager';
+import type { ContentStorage } from './storage';
+import type { HistoryStorage } from '../history/storage';
 import type { CategoryManager } from './CategoryManager';
-import type { VectorSearchManager } from './VectorSearchManager';
-import type { Tab } from './Tab';
+import type { VectorSearchManager } from '../search/VectorSearchManager';
+import type { Tab } from '../tabs';
 
 // ============================================================================
 // INTERFACES
@@ -95,7 +96,8 @@ interface LLMAnalysisResponse {
 // ============================================================================
 
 export class ContentAnalyzer {
-  private userDataManager: UserDataManager;
+  private contentStorage: ContentStorage;
+  private historyStorage: HistoryStorage;
   private categoryManager: CategoryManager;
   private vectorSearchManager: VectorSearchManager;
   private queue: AnalysisQueueItem[] = [];
@@ -113,11 +115,13 @@ export class ContentAnalyzer {
   ];
 
   constructor(
-    userDataManager: UserDataManager,
+    contentStorage: ContentStorage,
+    historyStorage: HistoryStorage,
     categoryManager: CategoryManager,
     vectorSearchManager: VectorSearchManager
   ) {
-    this.userDataManager = userDataManager;
+    this.contentStorage = contentStorage;
+    this.historyStorage = historyStorage;
     this.categoryManager = categoryManager;
     this.vectorSearchManager = vectorSearchManager;
 
@@ -285,25 +289,25 @@ export class ContentAnalyzer {
 
       // Check for existing analysis with same content
       const indexKey = `${url}:${htmlHash}:${screenshotHash}`;
-      const analysisIndex = await this.userDataManager.getAnalysisIndex(userId);
+      const analysisIndex = await this.contentStorage.getAnalysisIndex(userId);
       const existingAnalysisId = analysisIndex.get(indexKey);
 
       if (existingAnalysisId) {
         // Reuse existing analysis
         console.log(`ContentAnalyzer: Reusing existing analysis ${existingAnalysisId} for ${url}`);
-        await this.userDataManager.linkActivityToAnalysis(userId, activityId, existingAnalysisId);
+        await this.contentStorage.linkActivityToAnalysis(userId, activityId, existingAnalysisId);
         return;
       }
 
       // Save screenshot for new analysis
-      await this.userDataManager.saveScreenshot(
+      await this.contentStorage.saveScreenshot(
         userId,
         activityId,
         screenshotBuffer
       );
 
       // Save raw HTML to separate directory using hash
-      await this.userDataManager.saveRawHtml(userId, htmlHash, html);
+      await this.contentStorage.saveRawHtml(userId, htmlHash, html);
 
       // Store the extracted data temporarily so it's available during queue processing
       // We'll create a temporary storage for this
@@ -384,7 +388,7 @@ export class ContentAnalyzer {
       }
 
       // Load screenshot
-      const screenshotBuffer = await this.userDataManager.getScreenshot(
+      const screenshotBuffer = await this.contentStorage.getScreenshot(
         queueItem.userId,
         queueItem.activityId
       );
@@ -518,16 +522,16 @@ export class ContentAnalyzer {
       };
 
       // Save analysis result
-      await this.userDataManager.saveContentAnalysis(queueItem.userId, analysisResult);
+      await this.contentStorage.saveContentAnalysis(queueItem.userId, analysisResult);
 
       // Update index
       const indexKey = `${queueItem.url}:${analysisResult.htmlHash}:${analysisResult.screenshotHash}`;
-      await this.userDataManager.updateAnalysisIndex(queueItem.userId, indexKey, analysisId);
+      await this.contentStorage.updateAnalysisIndex(queueItem.userId, indexKey, analysisId);
 
       // Link analysis to browsing history entry
       if (queueItem.historyEntryId) {
         try {
-          await this.userDataManager.linkHistoryToAnalysis(
+          await this.historyStorage.linkHistoryToAnalysis(
             queueItem.userId,
             queueItem.historyEntryId,
             analysisId
@@ -558,7 +562,7 @@ export class ContentAnalyzer {
       }
 
       // Save LLM debug log
-      await this.userDataManager.saveLLMDebugLog(queueItem.userId, {
+      await this.contentStorage.saveLLMDebugLog(queueItem.userId, {
         interactionId,
         timestamp: new Date(),
         analysisId,
@@ -581,7 +585,7 @@ export class ContentAnalyzer {
 
     } catch (error) {
       // Save failed LLM debug log
-      await this.userDataManager.saveLLMDebugLog(queueItem.userId, {
+      await this.contentStorage.saveLLMDebugLog(queueItem.userId, {
         interactionId,
         timestamp: new Date(),
         analysisId,
@@ -642,7 +646,7 @@ export class ContentAnalyzer {
       error
     };
 
-    await this.userDataManager.saveContentAnalysis(queueItem.userId, failedResult);
+    await this.contentStorage.saveContentAnalysis(queueItem.userId, failedResult);
   }
 
   // ============================================================================
@@ -813,3 +817,4 @@ Try again:`;
     console.log('ContentAnalyzer: Destroyed');
   }
 }
+

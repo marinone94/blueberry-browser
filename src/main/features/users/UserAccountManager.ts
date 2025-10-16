@@ -2,7 +2,7 @@ import { app } from "electron";
 import { join } from "path";
 import { promises as fs } from "fs";
 import { v4 as uuidv4 } from "uuid";
-import { UserDataManager, type UserTabState } from "./UserDataManager";
+import { UserStorage, type UserTabState } from "./storage";
 
 export interface UserAccount {
   id: string;
@@ -34,15 +34,15 @@ export class UserAccountManager {
   private currentUserId: string | null = null;
   private lastNonGuestUserId: string | null = null;
   private readonly maxUsers = 10;
-  private readonly userDataManager: UserDataManager;
+  private readonly userStorage: UserStorage;
   private readonly accountsFilePath: string;
   private readonly currentUserFilePath: string;
 
   // Guest user constants
   private static readonly GUEST_USER_ID = "guest";
 
-  constructor(userDataManager: UserDataManager) {
-    this.userDataManager = userDataManager;
+  constructor(userStorage: UserStorage) {
+    this.userStorage = userStorage;
     
     const userDataPath = app.getPath("userData");
     const usersDir = join(userDataPath, "users");
@@ -85,7 +85,7 @@ export class UserAccountManager {
    */
   private async createFreshGuestUser(): Promise<void> {
     // Always clear guest user data for fresh start
-    await this.userDataManager.clearUserData(UserAccountManager.GUEST_USER_ID);
+    await this.userStorage.clearUserData(UserAccountManager.GUEST_USER_ID);
     
     const guestUser: UserAccount = {
       id: UserAccountManager.GUEST_USER_ID,
@@ -305,7 +305,7 @@ export class UserAccountManager {
           console.log(`Switching from ${previousUserId} to ${userId} - keeping current tabs`);
         } else {
           // Load the new user's saved tabs
-          tabsToLoad = await this.userDataManager.loadUserTabs(userId);
+          tabsToLoad = await this.userStorage.loadUserTabs(userId);
           console.log(`Switching from ${previousUserId} to ${userId} - loading user's ${tabsToLoad.length} saved tabs`);
         }
       }
@@ -319,7 +319,7 @@ export class UserAccountManager {
         await this.updateLastActiveTime(userId);
       } else {
         // Guest user - always fresh, so clear any existing tabs
-        await this.userDataManager.clearUserTabs(userId);
+        await this.userStorage.clearUserTabs(userId);
         tabsToLoad = [];
       }
       
@@ -338,7 +338,7 @@ export class UserAccountManager {
    */
   async saveCurrentUserTabs(tabs: UserTabState[]): Promise<void> {
     if (this.currentUserId && !this.isCurrentUserGuest()) {
-      await this.userDataManager.saveUserTabs(this.currentUserId, tabs);
+      await this.userStorage.saveUserTabs(this.currentUserId, tabs);
       console.log(`Saved ${tabs.length} tabs for user ${this.currentUserId}`);
     }
   }
@@ -375,7 +375,7 @@ export class UserAccountManager {
       this.users.delete(userId);
       
       // Clear user data
-      await this.userDataManager.clearUserData(userId);
+      await this.userStorage.clearUserData(userId);
       
       // Save changes
       await this.saveUsersToDisk();
