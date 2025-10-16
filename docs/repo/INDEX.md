@@ -113,6 +113,21 @@ Advanced feature that analyzes user browsing behavior to detect patterns and pro
 
 **Use this** for understanding the proactive insights architecture and implementing intelligent behavior analysis features.
 
+### [REFACTORING_PHASE1.md](./REFACTORING_PHASE1.md)
+**Architecture Refactoring - Phase 1** 🚧
+
+Documentation of the ongoing refactoring from monolithic EventManager to feature-based architecture:
+
+- **New Structure**: Feature-based organization with `core/`, `features/`, and `shared/` directories
+- **IPC Infrastructure**: BaseIPCHandler and IPCRegistry for modular IPC handling
+- **Activity Feature Migration**: Proof of concept showing the new pattern in action
+- **Backward Compatibility**: Both systems run side-by-side, no breaking changes
+- **Migration Guide**: Step-by-step guide for migrating additional features
+- **Benefits**: Better organization, maintainability, testability, and scalability
+- **Next Steps**: Phase 2 plans for migrating remaining features
+
+**Use this** to understand the refactoring strategy and contribute to the migration effort.
+
 ---
 
 ## 🚀 Quick Start
@@ -139,24 +154,32 @@ Advanced feature that analyzes user browsing behavior to detect patterns and pro
 ```
 blueberry-browser/
 ├── src/
-│   ├── main/               # Electron main process
-│   │   ├── index.ts        # App entry point & lifecycle
-│   │   ├── Window.ts       # BaseWindow with multi-view layout
-│   │   ├── EventManager.ts # Central IPC hub
-│   │   ├── Tab.ts          # Individual tab management
-│   │   ├── LLMClient.ts    # AI integration with streaming
+│   ├── main/                      # Electron main process
+│   │   ├── core/                  # Core infrastructure (NEW)
+│   │   │   └── ipc/              # IPC handling framework
+│   │   ├── features/              # Feature modules (NEW)
+│   │   │   └── activity/         # Activity tracking feature
+│   │   ├── shared/                # Shared code (NEW)
+│   │   │   └── types/            # Shared type definitions
+│   │   ├── index.ts              # App entry point & lifecycle
+│   │   ├── Window.ts             # BaseWindow with multi-view layout
+│   │   ├── EventManager.ts       # Legacy IPC hub (being phased out)
+│   │   ├── Tab.ts                # Individual tab management
+│   │   ├── LLMClient.ts          # AI integration with streaming
 │   │   └── ...
-│   ├── preload/            # Secure IPC bridges
-│   │   ├── topbar.ts       # Browser navigation API
-│   │   └── sidebar.ts      # AI chat API
-│   └── renderer/           # React applications
-│       ├── topbar/         # Browser UI (tabs, address bar)
-│       ├── sidebar/        # AI chat interface
-│       └── common/         # Shared components & utilities
+│   ├── preload/                   # Secure IPC bridges
+│   │   ├── topbar.ts             # Browser navigation API
+│   │   └── sidebar.ts            # AI chat API
+│   └── renderer/                  # React applications
+│       ├── topbar/               # Browser UI (tabs, address bar)
+│       ├── sidebar/              # AI chat interface
+│       └── common/               # Shared components & utilities
 ├── docs/
-│   ├── repo/              # This documentation
-│   └── ROADMAP.md         # Future development plans
-└── [config files]         # Build, TypeScript, styling configs
+│   ├── repo/                     # This documentation
+│   │   ├── REFACTORING_PHASE1.md # Architecture refactoring guide
+│   │   └── ...
+│   └── ROADMAP.md                # Future development plans
+└── [config files]                # Build, TypeScript, styling configs
 ```
 
 ---

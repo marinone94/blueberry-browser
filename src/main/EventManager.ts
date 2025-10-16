@@ -1,6 +1,6 @@
 import { ipcMain, WebContents } from "electron";
 import type { Window } from "./Window";
-import type { ActivityType } from "./ActivityTypes";
+import type { ActivityType } from "./shared/types/ActivityTypes";
 
 export class EventManager {
   private mainWindow: Window;

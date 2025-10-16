@@ -7,7 +7,7 @@ import { openai } from '@ai-sdk/openai';
 import type { UserDataManager } from './UserDataManager';
 import type { CategoryManager } from './CategoryManager';
 import type { VectorSearchManager } from './VectorSearchManager';
-import type { Tab } from './Tab';
+import type { Tab } from './features/tabs';
 
 // ============================================================================
 // INTERFACES

@@ -61,17 +61,32 @@ Blueberry Browser implements a sophisticated multi-window Electron architecture 
 #### Main Process Architecture
 The main process (`src/main/`) orchestrates the entire application:
 
-- **`index.ts`**: Application entry point, handles lifecycle events
+**Core Infrastructure:**
+- **`index.ts`**: Application entry point, handles lifecycle events, initializes IPC systems
 - **`Window.ts`**: Manages BaseWindow with multiple WebContentsViews and user account integration
-- **`EventManager.ts`**: Central IPC hub handling all communication including user account management
+- **`EventManager.ts`**: Legacy IPC hub (being phased out, see refactoring below)
+- **`core/ipc/`**: New modular IPC infrastructure (BaseIPCHandler, IPCRegistry)
+
+**Feature Modules (New Architecture):**
+- **`features/activity/`**: Activity tracking and collection
+- **`features/`**: Additional features being migrated (see [REFACTORING_PHASE1.md](./REFACTORING_PHASE1.md))
+
+**Legacy Files (To Be Migrated):**
 - **`Tab.ts`**: Individual tab management with user-specific session partitioning
 - **`TopBar.ts`** & **`SideBar.ts`**: UI component managers
 - **`LLMClient.ts`**: AI integration with user-specific chat history management
 - **`Menu.ts`**: Application menu and keyboard shortcuts
 - **`UserAccountManager.ts`**: Core user account management with session isolation
 - **`UserDataManager.ts`**: User-specific data persistence and file system operations
-- **`ActivityCollector.ts`**: Buffered collection and processing of user activity data
-- **`ActivityTypes.ts`**: Comprehensive type definitions for 13 activity categories
+- **`ActivityCollector.ts`**: Buffered collection (migrated to `features/activity/`)
+- **`ActivityTypes.ts`**: Activity type definitions (migrated to `shared/types/`)
+
+> **⚠️ Architecture Refactoring in Progress**
+> 
+> We are migrating from a monolithic EventManager pattern to a feature-based architecture.
+> Phase 1 is complete with the activity feature as proof of concept. Both systems run
+> side-by-side for backward compatibility. See [REFACTORING_PHASE1.md](./REFACTORING_PHASE1.md)
+> for details.
 
 #### Renderer Processes
 The application runs three types of renderer processes:

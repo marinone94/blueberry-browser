@@ -1,4 +1,4 @@
-import { UserDataManager } from "./UserDataManager";
+import type { UserDataManager } from "../../UserDataManager";
 import type {
   RawActivityData,
   ActivityType,
@@ -15,8 +15,20 @@ import type {
   ChatInteractionData,
   ContentExtractionData,
   FormInteractionData
-} from "./ActivityTypes";
+} from "../../shared/types/ActivityTypes";
 
+/**
+ * ActivityCollector - Manages buffered collection and storage of user activity data.
+ * 
+ * This class collects user activities across multiple types and manages efficient
+ * batched storage to avoid excessive I/O operations.
+ * 
+ * Features:
+ * - Buffered collection with automatic flushing
+ * - Multiple activity types supported (13 total)
+ * - Session-based tracking
+ * - Automatic retry on flush failures
+ */
 export class ActivityCollector {
   private userId: string;
   private sessionId: string;
@@ -135,9 +147,9 @@ export class ActivityCollector {
 
     try {
       await this.userDataManager.saveRawActivityData(this.userId, activitiesToFlush);
-      console.log(`ActivityCollector: Flushed ${activitiesToFlush.length} activities for user ${this.userId}`);
+      console.log(`[ActivityCollector] Flushed ${activitiesToFlush.length} activities for user ${this.userId}`);
     } catch (error) {
-      console.error('Failed to flush activity data:', error);
+      console.error('[ActivityCollector] Failed to flush activity data:', error);
       // Re-add failed data to buffer for retry
       this.dataBuffer.unshift(...activitiesToFlush);
     }
@@ -156,6 +168,7 @@ export class ActivityCollector {
       clearInterval(this.bufferFlushInterval);
     }
     await this.flushBuffer(); // Final flush
-    console.log(`ActivityCollector: Destroyed collector for user ${this.userId}`);
+    console.log(`[ActivityCollector] Destroyed collector for user ${this.userId}`);
   }
 }
+

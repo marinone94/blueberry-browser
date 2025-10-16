@@ -1,10 +1,10 @@
 import { BaseWindow, shell } from "electron";
-import { Tab, type HistoryCallback } from "./Tab";
+import { Tab, type HistoryCallback } from "./features/tabs";
 import { TopBar } from "./TopBar";
 import { SideBar } from "./SideBar";
 import { UserAccountManager, type TabSwitchOptions } from "./UserAccountManager";
 import { UserDataManager, type UserTabState } from "./UserDataManager";
-import { ActivityCollector } from "./ActivityCollector";
+import { ActivityCollector } from "./features/activity";
 import { ContentAnalyzer } from "./ContentAnalyzer";
 import { CategoryManager } from "./CategoryManager";
 import { VectorSearchManager } from "./VectorSearchManager";

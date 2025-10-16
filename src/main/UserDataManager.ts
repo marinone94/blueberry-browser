@@ -2,7 +2,7 @@ import { app } from "electron";
 import { join, dirname } from "path";
 import { promises as fs } from "fs";
 import type { CoreMessage } from "ai";
-import type { RawActivityData } from "./ActivityTypes";
+import type { RawActivityData } from "./shared/types/ActivityTypes";
 
 // Dummy interfaces for future implementation
 export interface UserPreferences {
