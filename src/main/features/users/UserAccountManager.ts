@@ -2,7 +2,7 @@ import { app } from "electron";
 import { join } from "path";
 import { promises as fs } from "fs";
 import { v4 as uuidv4 } from "uuid";
-import { UserStorage, type UserTabState } from "./features/users/storage";
+import { UserStorage, type UserTabState } from "./storage";
 
 export interface UserAccount {
   id: string;

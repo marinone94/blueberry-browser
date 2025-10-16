@@ -6,7 +6,6 @@
  * Components:
  * - LLMClient: Client for AI chat with context-aware streaming
  * - ChatIPCHandler: IPC handlers for chat messaging and session management
- * - ChatStorage: Manages chat history with sessions and metadata
  */
 
 export { LLMClient } from './LLMClient';

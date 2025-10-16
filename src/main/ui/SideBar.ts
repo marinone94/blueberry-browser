@@ -1,7 +1,7 @@
 import { is } from "@electron-toolkit/utils";
 import { BaseWindow, WebContentsView } from "electron";
 import { join } from "path";
-import { LLMClient } from "./features/ai/LLMClient";
+import { LLMClient } from "../features/ai/LLMClient";
 
 export class SideBar {
   private webContentsView: WebContentsView;

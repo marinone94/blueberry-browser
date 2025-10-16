@@ -3,10 +3,10 @@ import { openai } from '@ai-sdk/openai';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { app } from 'electron';
-import type { InsightsStorage } from './features/insights/storage';
-import type { ActivityStorage } from './features/activity/storage';
-import type { ContentStorage } from './features/content/storage';
-import type { VectorSearchManager } from './features/search/VectorSearchManager';
+import type { InsightsStorage } from './storage';
+import type { ActivityStorage } from '../activity/storage';
+import type { ContentStorage } from '../content/storage';
+import type { VectorSearchManager } from '../search/VectorSearchManager';
 
 // ============================================================================
 // INTERFACES

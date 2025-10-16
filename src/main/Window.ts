@@ -1,8 +1,8 @@
 import { BaseWindow, shell } from "electron";
 import { Tab, type HistoryCallback } from "./features/tabs";
-import { TopBar } from "./TopBar";
-import { SideBar } from "./SideBar";
-import { UserAccountManager, type TabSwitchOptions } from "./UserAccountManager";
+import { TopBar } from "./ui/TopBar";
+import { SideBar } from "./ui/SideBar";
+import { UserAccountManager, type TabSwitchOptions } from "./features/users/UserAccountManager";
 import { type UserTabState } from "./features/users/storage";
 import { ActivityCollector } from "./features/activity";
 import { ActivityStorage } from "./features/activity/storage";
@@ -14,7 +14,7 @@ import { ChatStorage } from "./features/ai/storage";
 import { UserStorage } from "./features/users/storage";
 import { CategoryManager } from "./features/content/CategoryManager";
 import { VectorSearchManager } from "./features/search/VectorSearchManager";
-import { ProactiveInsightsManager } from "./ProactiveInsightsManager";
+import { ProactiveInsightsManager } from "./features/insights/ProactiveInsightsManager";
 
 export class Window {
   private _baseWindow!: BaseWindow;

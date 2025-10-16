@@ -5,7 +5,7 @@ import { anthropic } from "@ai-sdk/anthropic";
 import * as dotenv from "dotenv";
 import { join } from "path";
 import type { Window } from "../../Window";
-import type { UserAccountManager } from "../../UserAccountManager";
+import type { UserAccountManager } from "../users/UserAccountManager";
 import type { StreamingMetrics } from "./storage";
 
 // Load environment variables from .env file
