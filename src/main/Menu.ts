@@ -116,7 +116,7 @@ export class AppMenu {
               console.log('Menu: Re-indexing chat history...');
               await this.mainWindow.vectorSearchManager.reindexAllChatSessions(
                 this.mainWindow.userAccountManager.getCurrentUser()?.id || '',
-                this.mainWindow.userDataManager
+                this.mainWindow.chatStorage
               );
               console.log('Menu: Chat history re-index complete');
             },
@@ -127,7 +127,7 @@ export class AppMenu {
               console.log('Menu: Re-indexing browsing history...');
               const result = await this.mainWindow.vectorSearchManager.reindexAllBrowsingHistory(
                 this.mainWindow.userAccountManager.getCurrentUser()?.id || '',
-                this.mainWindow.userDataManager
+                this.mainWindow.historyStorage
               );
               console.log('Menu: Browsing history re-index complete:', result);
             },

@@ -38,7 +38,7 @@ export class ActivityIPCHandler extends BaseIPCHandler {
     // Activity data query endpoints
     ipcMain.handle('get-activity-data', async (_, userId: string, date?: string) => {
       try {
-        return await this.mainWindow.userDataManager.loadRawActivityData(userId, date);
+        return await this.mainWindow.activityStorage.loadRawActivityData(userId, date);
       } catch (error) {
         console.error('[ActivityIPCHandler] Failed to load activity data:', error);
         return [];
@@ -47,7 +47,7 @@ export class ActivityIPCHandler extends BaseIPCHandler {
 
     ipcMain.handle('get-activity-date-range', async (_, userId: string) => {
       try {
-        return await this.mainWindow.userDataManager.getRawActivityDateRange(userId);
+        return await this.mainWindow.activityStorage.getRawActivityDateRange(userId);
       } catch (error) {
         console.error('[ActivityIPCHandler] Failed to get activity date range:', error);
         return { startDate: '', endDate: '', totalDays: 0 };
@@ -56,7 +56,7 @@ export class ActivityIPCHandler extends BaseIPCHandler {
 
     ipcMain.handle('clear-activity-data', async (_, userId: string, beforeDate?: string) => {
       try {
-        await this.mainWindow.userDataManager.clearRawActivityData(userId, beforeDate);
+        await this.mainWindow.activityStorage.clearRawActivityData(userId, beforeDate);
         return { success: true };
       } catch (error) {
         console.error('[ActivityIPCHandler] Failed to clear activity data:', error);
@@ -66,7 +66,7 @@ export class ActivityIPCHandler extends BaseIPCHandler {
 
     ipcMain.handle('get-activity-data-size', async (_, userId: string) => {
       try {
-        return await this.mainWindow.userDataManager.getRawActivityDataSize(userId);
+        return await this.mainWindow.activityStorage.getRawActivityDataSize(userId);
       } catch (error) {
         console.error('[ActivityIPCHandler] Failed to get activity data size:', error);
         return 0;
@@ -75,7 +75,7 @@ export class ActivityIPCHandler extends BaseIPCHandler {
 
     ipcMain.handle('populate-history-from-activities', async (_, userId: string) => {
       try {
-        const count = await this.mainWindow.userDataManager.populateHistoryFromActivities(userId);
+        const count = await this.mainWindow.historyStorage.populateHistoryFromActivities(userId);
         return { success: true, count };
       } catch (error) {
         console.error('[ActivityIPCHandler] Failed to populate history from activities:', error);

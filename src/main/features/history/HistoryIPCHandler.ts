@@ -29,7 +29,7 @@ export class HistoryIPCHandler extends BaseIPCHandler {
       const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
       if (!currentUser) return [];
       
-      return await this.mainWindow.userDataManager.loadBrowsingHistory(currentUser.id);
+      return await this.mainWindow.historyStorage.loadBrowsingHistory(currentUser.id);
     });
 
     // Search browsing history with smart search (string first, semantic fallback)
@@ -60,7 +60,7 @@ export class HistoryIPCHandler extends BaseIPCHandler {
       });
 
       // Step 1: Try basic string search (title/URL contains query)
-      const basicResults = await this.mainWindow.userDataManager.searchHistory(
+      const basicResults = await this.mainWindow.historyStorage.searchHistory(
         currentUser.id, 
         searchQuery, 
         limit
@@ -103,8 +103,8 @@ export class HistoryIPCHandler extends BaseIPCHandler {
         }
 
         // Load full browsing history and all content analyses to map vector results
-        const fullHistory = await this.mainWindow.userDataManager.loadBrowsingHistory(currentUser.id);
-        const allAnalyses = await this.mainWindow.userDataManager.getAllContentAnalyses(currentUser.id);
+        const fullHistory = await this.mainWindow.historyStorage.loadBrowsingHistory(currentUser.id);
+        const allAnalyses = await this.mainWindow.contentStorage.getAllContentAnalyses(currentUser.id);
         
         // Create a map of analysisId -> URL for matching
         const analysisUrlMap = new Map<string, string>();
@@ -195,7 +195,7 @@ export class HistoryIPCHandler extends BaseIPCHandler {
       const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
       if (!currentUser) return { success: false, error: "No current user" };
       
-      await this.mainWindow.userDataManager.clearBrowsingHistory(currentUser.id);
+      await this.mainWindow.historyStorage.clearBrowsingHistory(currentUser.id);
       return { success: true };
     });
 
@@ -204,7 +204,7 @@ export class HistoryIPCHandler extends BaseIPCHandler {
       const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
       if (!currentUser) return { success: false, error: "No current user" };
       
-      await this.mainWindow.userDataManager.removeHistoryEntry(currentUser.id, entryId);
+      await this.mainWindow.historyStorage.removeHistoryEntry(currentUser.id, entryId);
       return { success: true };
     });
 

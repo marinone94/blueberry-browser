@@ -198,25 +198,25 @@ export class EventManager {
     ipcMain.handle("get-chat-history", async () => {
       const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
       if (!currentUser) return null;
-      return await this.mainWindow.userDataManager.loadChatHistory(currentUser.id);
+      return await this.mainWindow.chatStorage.loadChatHistory(currentUser.id);
     });
 
     ipcMain.handle("get-chat-sessions", async () => {
       const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
       if (!currentUser) return [];
-      return await this.mainWindow.userDataManager.getChatSessions(currentUser.id);
+      return await this.mainWindow.chatStorage.getChatSessions(currentUser.id);
     });
 
     ipcMain.handle("get-session-messages", async (_, sessionId: string) => {
       const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
       if (!currentUser) return [];
-      return await this.mainWindow.userDataManager.getSessionMessages(currentUser.id, sessionId);
+      return await this.mainWindow.chatStorage.getSessionMessages(currentUser.id, sessionId);
     });
 
     ipcMain.handle("create-chat-session", async (_, contextUrl?: string, title?: string) => {
       const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
       if (!currentUser) throw new Error("No current user");
-      return await this.mainWindow.userDataManager.createChatSession(currentUser.id, contextUrl, title);
+      return await this.mainWindow.chatStorage.createChatSession(currentUser.id, contextUrl, title);
     });
 
     ipcMain.handle("switch-to-session", async (_, sessionId: string) => {
@@ -227,10 +227,10 @@ export class EventManager {
       await this.mainWindow.sidebar.client.setCurrentSessionId(sessionId);
       
       // Set current session ID in user data manager
-      await this.mainWindow.userDataManager.setCurrentSessionId(currentUser.id, sessionId);
+      await this.mainWindow.chatStorage.setCurrentSessionId(currentUser.id, sessionId);
       
       // Load messages for this session and convert to CoreMessage format for display
-      const sessionMessages = await this.mainWindow.userDataManager.getSessionMessages(currentUser.id, sessionId);
+      const sessionMessages = await this.mainWindow.chatStorage.getSessionMessages(currentUser.id, sessionId);
       const coreMessages = sessionMessages.map(msg => {
         const coreMessage: any = {
           role: msg.role,
@@ -247,10 +247,14 @@ export class EventManager {
       const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
       if (!currentUser) return;
       
-      await this.mainWindow.userDataManager.deleteChatSession(
+      await this.mainWindow.chatStorage.deleteChatSession(
         currentUser.id,
-        sessionId,
-        this.mainWindow.vectorSearchManager
+        sessionId
+      );
+      // Also delete vector search documents
+      await this.mainWindow.vectorSearchManager.deleteChatSessionDocuments(
+        currentUser.id,
+        sessionId
       );
     });
 
@@ -259,7 +263,7 @@ export class EventManager {
       if (!currentUser) return;
       
       // Get all session IDs before clearing
-      const history = await this.mainWindow.userDataManager.loadChatHistory(currentUser.id);
+      const history = await this.mainWindow.chatStorage.loadChatHistory(currentUser.id);
       const sessionIds = history.sessions.map(s => s.id);
       
       // Delete vector documents for all sessions
@@ -267,7 +271,7 @@ export class EventManager {
         await this.mainWindow.vectorSearchManager.deleteMultipleChatSessions(currentUser.id, sessionIds);
       }
       
-      await this.mainWindow.userDataManager.clearChatHistory(currentUser.id);
+      await this.mainWindow.chatStorage.clearChatHistory(currentUser.id);
     });
 
     ipcMain.handle("reindex-all-chats", async () => {
@@ -281,7 +285,7 @@ export class EventManager {
         console.log('[EventManager] Starting full chat re-index...');
         await this.mainWindow.vectorSearchManager.reindexAllChatSessions(
           currentUser.id,
-          this.mainWindow.userDataManager
+          this.mainWindow.chatStorage
         );
         console.log('[EventManager] Chat re-index completed successfully');
         return { success: true };
@@ -302,7 +306,7 @@ export class EventManager {
         console.log('[EventManager] Starting browsing history re-index (missing entries only)...');
         const result = await this.mainWindow.vectorSearchManager.reindexAllBrowsingHistory(
           currentUser.id,
-          this.mainWindow.userDataManager
+          this.mainWindow.historyStorage
         );
         console.log('[EventManager] Browsing history re-index completed:', result);
         return result;
@@ -336,7 +340,7 @@ export class EventManager {
       
       try {
         // Load all sessions and messages
-        const history = await this.mainWindow.userDataManager.loadChatHistory(currentUser.id);
+        const history = await this.mainWindow.chatStorage.loadChatHistory(currentUser.id);
         let sessions = history.sessions;
         console.log(`[EventManager] Loaded ${sessions.length} sessions for user ${currentUser.id}`);
         
@@ -384,7 +388,7 @@ export class EventManager {
             }
 
             // Check message content
-            const messages = await this.mainWindow.userDataManager.getSessionMessages(currentUser.id, session.id);
+            const messages = await this.mainWindow.chatStorage.getSessionMessages(currentUser.id, session.id);
             for (const msg of messages) {
               const contentStr = typeof msg.content === 'string' 
                 ? msg.content 
@@ -451,7 +455,7 @@ export class EventManager {
             }
 
             // ALWAYS check message content for exact matches (not conditional)
-            const messages = await this.mainWindow.userDataManager.getSessionMessages(currentUser.id, session.id);
+            const messages = await this.mainWindow.chatStorage.getSessionMessages(currentUser.id, session.id);
             for (const msg of messages) {
               const contentStr = typeof msg.content === 'string' 
                 ? msg.content 
@@ -646,7 +650,7 @@ export class EventManager {
       const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
       if (!currentUser) return [];
       
-      return await this.mainWindow.userDataManager.loadBrowsingHistory(currentUser.id);
+      return await this.mainWindow.historyStorage.loadBrowsingHistory(currentUser.id);
     });
 
     // Search browsing history with smart search (string first, semantic fallback)
@@ -677,7 +681,7 @@ export class EventManager {
       });
 
       // Step 1: Try basic string search (title/URL contains query)
-      const basicResults = await this.mainWindow.userDataManager.searchHistory(
+      const basicResults = await this.mainWindow.historyStorage.searchHistory(
         currentUser.id, 
         searchQuery, 
         limit
@@ -720,8 +724,8 @@ export class EventManager {
         }
 
         // Load full browsing history and all content analyses to map vector results
-        const fullHistory = await this.mainWindow.userDataManager.loadBrowsingHistory(currentUser.id);
-        const allAnalyses = await this.mainWindow.userDataManager.getAllContentAnalyses(currentUser.id);
+        const fullHistory = await this.mainWindow.historyStorage.loadBrowsingHistory(currentUser.id);
+        const allAnalyses = await this.mainWindow.contentStorage.getAllContentAnalyses(currentUser.id);
         
         // Create a map of analysisId -> URL for matching
         const analysisUrlMap = new Map<string, string>();
@@ -812,7 +816,7 @@ export class EventManager {
       const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
       if (!currentUser) return { success: false, error: "No current user" };
       
-      await this.mainWindow.userDataManager.clearBrowsingHistory(currentUser.id);
+      await this.mainWindow.historyStorage.clearBrowsingHistory(currentUser.id);
       return { success: true };
     });
 
@@ -821,7 +825,7 @@ export class EventManager {
       const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
       if (!currentUser) return { success: false, error: "No current user" };
       
-      await this.mainWindow.userDataManager.removeHistoryEntry(currentUser.id, entryId);
+      await this.mainWindow.historyStorage.removeHistoryEntry(currentUser.id, entryId);
       return { success: true };
     });
 
@@ -954,7 +958,7 @@ export class EventManager {
           return { success: false, error: 'No URL available to resume' };
         } else if (insight.actionType === 'remind') {
           // Check if reminder with same domain, day, and hour already exists
-          const existingReminders = await this.mainWindow.userDataManager.getReminders(currentUser.id);
+          const existingReminders = await this.mainWindow.insightsStorage.getReminders(currentUser.id);
           
           // Extract key properties from the new reminder
           const newDomain = insight.actionParams?.domain;
@@ -988,11 +992,11 @@ export class EventManager {
             title: insight.title,
             description: insight.description,
             actionParams: insight.actionParams,
-            createdAt: new Date().toISOString(),
+            createdAt: new Date(),
             completed: false
           };
           
-          await this.mainWindow.userDataManager.saveReminder(currentUser.id, reminder);
+          await this.mainWindow.insightsStorage.saveReminder(currentUser.id, reminder);
           
           // Send success message to UI
           this.mainWindow.sidebar.view.webContents.send('reminder-set', {
@@ -1018,7 +1022,7 @@ export class EventManager {
       if (!currentUser) return [];
       
       try {
-        return await this.mainWindow.userDataManager.getReminders(currentUser.id);
+        return await this.mainWindow.insightsStorage.getReminders(currentUser.id);
       } catch (error) {
         console.error('[EventManager] Failed to get reminders:', error);
         return [];
@@ -1031,7 +1035,7 @@ export class EventManager {
       if (!currentUser) return { success: false, error: 'No user logged in' };
       
       try {
-        await this.mainWindow.userDataManager.completeReminder(currentUser.id, reminderId);
+        await this.mainWindow.insightsStorage.completeReminder(currentUser.id, reminderId);
         return { success: true };
       } catch (error) {
         console.error('[EventManager] Failed to complete reminder:', error);
@@ -1045,7 +1049,7 @@ export class EventManager {
       if (!currentUser) return { success: false, error: 'No user logged in' };
       
       try {
-        await this.mainWindow.userDataManager.deleteReminder(currentUser.id, reminderId);
+        await this.mainWindow.insightsStorage.deleteReminder(currentUser.id, reminderId);
         return { success: true };
       } catch (error) {
         console.error('[EventManager] Failed to delete reminder:', error);
@@ -1059,7 +1063,7 @@ export class EventManager {
       if (!currentUser) return { success: false, error: 'No user logged in' };
       
       try {
-        const reminders = await this.mainWindow.userDataManager.getReminders(currentUser.id);
+        const reminders = await this.mainWindow.insightsStorage.getReminders(currentUser.id);
         const reminder = reminders.find(r => r.id === reminderId);
         
         if (!reminder) {
@@ -1074,7 +1078,7 @@ export class EventManager {
         }
 
         // Mark as completed
-        await this.mainWindow.userDataManager.completeReminder(currentUser.id, reminderId);
+        await this.mainWindow.insightsStorage.completeReminder(currentUser.id, reminderId);
         
         return { success: true, message: 'Reminder executed' };
       } catch (error) {
@@ -1284,7 +1288,7 @@ export class EventManager {
     // Activity data query endpoints for future use
     ipcMain.handle('get-activity-data', async (_, userId: string, date?: string) => {
       try {
-        return await this.mainWindow.userDataManager.loadRawActivityData(userId, date);
+        return await this.mainWindow.activityStorage.loadRawActivityData(userId, date);
       } catch (error) {
         console.error('Failed to load activity data:', error);
         return [];
@@ -1293,7 +1297,7 @@ export class EventManager {
 
     ipcMain.handle('get-activity-date-range', async (_, userId: string) => {
       try {
-        return await this.mainWindow.userDataManager.getRawActivityDateRange(userId);
+        return await this.mainWindow.activityStorage.getRawActivityDateRange(userId);
       } catch (error) {
         console.error('Failed to get activity date range:', error);
         return { startDate: '', endDate: '', totalDays: 0 };
@@ -1302,7 +1306,7 @@ export class EventManager {
 
     ipcMain.handle('clear-activity-data', async (_, userId: string, beforeDate?: string) => {
       try {
-        await this.mainWindow.userDataManager.clearRawActivityData(userId, beforeDate);
+        await this.mainWindow.activityStorage.clearRawActivityData(userId, beforeDate);
         return { success: true };
       } catch (error) {
         console.error('Failed to clear activity data:', error);
@@ -1312,7 +1316,7 @@ export class EventManager {
 
     ipcMain.handle('get-activity-data-size', async (_, userId: string) => {
       try {
-        return await this.mainWindow.userDataManager.getRawActivityDataSize(userId);
+        return await this.mainWindow.activityStorage.getRawActivityDataSize(userId);
       } catch (error) {
         console.error('Failed to get activity data size:', error);
         return 0;
@@ -1321,7 +1325,7 @@ export class EventManager {
 
     ipcMain.handle('populate-history-from-activities', async (_, userId: string) => {
       try {
-        const count = await this.mainWindow.userDataManager.populateHistoryFromActivities(userId);
+        const count = await this.mainWindow.historyStorage.populateHistoryFromActivities(userId);
         return { success: true, count };
       } catch (error) {
         console.error('Failed to populate history from activities:', error);

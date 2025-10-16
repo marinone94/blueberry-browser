@@ -1,4 +1,4 @@
-import type { UserDataManager } from "../../UserDataManager";
+import type { ActivityStorage } from "./storage";
 import type {
   RawActivityData,
   ActivityType,
@@ -32,16 +32,16 @@ import type {
 export class ActivityCollector {
   private userId: string;
   private sessionId: string;
-  private userDataManager: UserDataManager;
+  private activityStorage: ActivityStorage;
   private dataBuffer: RawActivityData[] = [];
   private bufferFlushInterval: NodeJS.Timeout;
   private readonly BUFFER_SIZE = 100;
   private readonly FLUSH_INTERVAL = 30000; // 30 seconds
 
-  constructor(userId: string, userDataManager: UserDataManager) {
+  constructor(userId: string, activityStorage: ActivityStorage) {
     this.userId = userId;
     this.sessionId = this.generateSessionId();
-    this.userDataManager = userDataManager;
+    this.activityStorage = activityStorage;
     
     // Set up periodic buffer flushing
     this.bufferFlushInterval = setInterval(() => {
@@ -146,7 +146,7 @@ export class ActivityCollector {
     this.dataBuffer = [];
 
     try {
-      await this.userDataManager.saveRawActivityData(this.userId, activitiesToFlush);
+      await this.activityStorage.saveRawActivityData(this.userId, activitiesToFlush);
       console.log(`[ActivityCollector] Flushed ${activitiesToFlush.length} activities for user ${this.userId}`);
     } catch (error) {
       console.error('[ActivityCollector] Failed to flush activity data:', error);
