@@ -123,14 +123,22 @@ export class UserIPCHandler extends BaseIPCHandler {
    */
   private broadcastUserChange(): void {
     const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+    const allUsers = this.mainWindow.userAccountManager.getAllUsers();
+    const userStats = this.mainWindow.userAccountManager.getUserStats();
     
-    // Notify topbar
-    this.mainWindow.topBar.view.webContents.send("user-changed", currentUser);
+    const userData = {
+      currentUser,
+      allUsers,
+      userStats
+    };
     
-    // Notify sidebar
-    this.mainWindow.sidebar.view.webContents.send("user-changed", currentUser);
+    // Notify topbar (expects full UserData object)
+    this.mainWindow.topBar.view.webContents.send("user-changed", userData);
     
-    // Notify all tabs
+    // Notify sidebar (expects full UserData object)
+    this.mainWindow.sidebar.view.webContents.send("user-changed", userData);
+    
+    // Notify all tabs (just needs currentUser)
     for (const tab of this.mainWindow.allTabs) {
       tab.view.webContents.send("user-changed", currentUser);
     }

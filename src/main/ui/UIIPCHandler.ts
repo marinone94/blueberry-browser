@@ -41,6 +41,37 @@ export class UIIPCHandler extends BaseIPCHandler {
       this.mainWindow.sidebar.view.webContents.send("topbar-message", type, data);
       return { success: true };
     });
+
+    // ========================================================================
+    // DARK MODE BROADCASTING
+    // ========================================================================
+
+    // Dark mode broadcasting - when one renderer changes dark mode, notify all others
+    ipcMain.on("dark-mode-changed", (event, isDarkMode: boolean) => {
+      this.broadcastDarkMode(event.sender, isDarkMode);
+    });
+  }
+
+  /**
+   * Broadcast dark mode change to all renderer processes except the sender
+   */
+  private broadcastDarkMode(sender: Electron.WebContents, isDarkMode: boolean): void {
+    // Send to topbar (if not the sender)
+    if (this.mainWindow.topBar.view.webContents !== sender) {
+      this.mainWindow.topBar.view.webContents.send("dark-mode-updated", isDarkMode);
+    }
+
+    // Send to sidebar (if not the sender)
+    if (this.mainWindow.sidebar.view.webContents !== sender) {
+      this.mainWindow.sidebar.view.webContents.send("dark-mode-updated", isDarkMode);
+    }
+
+    // Send to all tabs (if not the sender)
+    for (const tab of this.mainWindow.allTabs) {
+      if (tab.view.webContents !== sender) {
+        tab.view.webContents.send("dark-mode-updated", isDarkMode);
+      }
+    }
   }
 
   cleanup(): void {
@@ -48,6 +79,7 @@ export class UIIPCHandler extends BaseIPCHandler {
     
     ipcMain.removeHandler("toggle-sidebar");
     ipcMain.removeHandler("send-to-sidebar");
+    ipcMain.removeAllListeners("dark-mode-changed");
     
     console.log("[UIIPCHandler] All UI handlers cleaned up");
   }
