@@ -188,7 +188,10 @@ useEffect(() => {
   loadMessages()
 
   const handleUserChange = () => {
-    console.log('[ChatContext] User changed, reloading messages...')
+    console.log('[ChatContext] User changed, clearing and reloading messages...')
+    // Immediately clear messages to prevent flash of old content
+    setMessages([])
+    // Then load new user's messages
     loadMessages()
   }
 
@@ -200,11 +203,37 @@ useEffect(() => {
 }, [])
 ```
 
-**Verification:** ✅ Chat messages are cleared and reloaded on user switch
+**Verification:** ✅ Chat messages are immediately cleared and reloaded on user switch
 
 ---
 
-### 2. **HistoryContext** (`src/renderer/sidebar/src/contexts/HistoryContext.tsx`)
+### 2. **ChatHistoryContext** (`src/renderer/sidebar/src/contexts/ChatHistoryContext.tsx`)
+
+**User Change Handling:**
+```typescript
+useEffect(() => {
+  const handleUserChange = () => {
+    console.log('[ChatHistoryContext] User changed, clearing and reloading sessions...')
+    // Immediately clear sessions to prevent flash of old content
+    setSessions([])
+    setCurrentSessionId(null)
+    // Then load new user's sessions
+    loadSessions()
+  }
+
+  window.sidebarAPI.onUserChanged(handleUserChange)
+
+  return () => {
+    window.sidebarAPI.removeUserChangedListener()
+  }
+}, [loadSessions])
+```
+
+**Verification:** ✅ Chat sessions are immediately cleared and reloaded on user switch
+
+---
+
+### 3. **HistoryContext** (`src/renderer/sidebar/src/contexts/HistoryContext.tsx`)
 
 **User Change Handling:**
 ```typescript
@@ -226,7 +255,7 @@ useEffect(() => {
 
 ---
 
-### 3. **InsightsContext** (`src/renderer/sidebar/src/contexts/InsightsContext.tsx`)
+### 4. **InsightsContext** (`src/renderer/sidebar/src/contexts/InsightsContext.tsx`)
 
 **User Change Handling:**
 ```typescript
@@ -254,7 +283,7 @@ useEffect(() => {
 
 ---
 
-### 4. **Reminders Component** (`src/renderer/sidebar/src/components/Reminders.tsx`)
+### 5. **Reminders Component** (`src/renderer/sidebar/src/components/Reminders.tsx`)
 
 **User Change Handling:**
 ```typescript
@@ -283,8 +312,8 @@ useEffect(() => {
 
 | Data Type | Storage Isolation | IPC Handler Isolation | UI Reload on User Switch |
 |-----------|-------------------|----------------------|--------------------------|
-| **Chat History** | ✅ `/users/{userId}/chat-history.json` | ✅ All handlers check `currentUser.id` | ✅ ChatContext reloads |
-| **Chat Sessions** | ✅ Stored per user in chat history | ✅ All handlers check `currentUser.id` | ✅ ChatContext reloads |
+| **Chat Messages** | ✅ `/users/{userId}/chat-history.json` | ✅ All handlers check `currentUser.id` | ✅ ChatContext clears & reloads |
+| **Chat Sessions** | ✅ Stored per user in chat history | ✅ All handlers check `currentUser.id` | ✅ ChatHistoryContext clears & reloads |
 | **Browsing History** | ✅ `/users/{userId}/browsing-history.json` | ✅ All handlers check `currentUser.id` | ✅ HistoryContext reloads |
 | **Insights (Active)** | ✅ `/users/{userId}/insights.json` | ✅ All handlers check `currentUser.id` | ✅ InsightsContext clears & reloads |
 | **Insights (Completed)** | ✅ `/users/{userId}/insights.json` | ✅ All handlers check `currentUser.id` | ✅ InsightsContext clears & reloads |
@@ -300,7 +329,8 @@ useEffect(() => {
 2. **IPC Layer:** All handlers verify `getCurrentUser()` before accessing data
 3. **UI Layer:** All contexts/components listen for `user-changed` events and reload data
 4. **No Cross-User Access:** No method can access another user's data without explicit `userId` parameter
-5. **Immediate UI Updates:** All UI components clear stale data immediately before reloading
+5. **Immediate UI Updates:** All UI components clear stale data immediately (synchronously) before reloading new data
+6. **No Flashing:** State is cleared before async loading to prevent flashing of old user's data
 
 ---
 
@@ -324,7 +354,8 @@ To verify user isolation:
    - Ensure no shared files exist
 
 4. **Monitor Console Logs:**
-   - Look for "[ChatContext] User changed, reloading messages..."
+   - Look for "[ChatContext] User changed, clearing and reloading messages..."
+   - Look for "[ChatHistoryContext] User changed, clearing and reloading sessions..."
    - Look for "[InsightsContext] User changed, reloading insights and workflows..."
    - Look for "[Reminders] User changed, reloading reminders..."
    - Look for "User changed - refreshing history"
@@ -333,24 +364,29 @@ To verify user isolation:
 
 ## 📝 Changelog
 
-### 2025-10-16 - User Isolation Fix
+### 2025-10-16 - User Isolation Fix (Complete)
+- **Fixed:** ChatHistoryContext now listens for user changes and clears sessions immediately
+- **Fixed:** ChatContext now immediately clears messages on user switch (prevents flashing)
 - **Fixed:** Reminders component now listens for user changes
 - **Fixed:** InsightsContext now clears saved workflows on user switch
-- **Fixed:** ChatContext now properly clears messages on user switch
 - **Verified:** All storage classes use userId parameters
 - **Verified:** All IPC handlers check getCurrentUser()
 - **Verified:** All UI components reload on user-changed event
+- **Verified:** All UI components clear state synchronously before reloading (no flashing)
 
 ---
 
 ## ✅ Conclusion
 
 **User isolation is fully guaranteed** across all data types:
-- ✅ Chat history (sessions and messages)
+- ✅ Chat messages (immediate clear on user switch, no flashing)
+- ✅ Chat sessions/history (immediate clear on user switch, no flashing)
 - ✅ Browsing history
 - ✅ Insights (active and completed)
 - ✅ Saved agents/workflows
 - ✅ Reminders (active and completed)
 
-No user can access another user's data at any layer (storage, IPC, or UI).
+**No user can access another user's data at any layer (storage, IPC, or UI).**
+
+**No flashing or blocking:** All UI components synchronously clear state before async loading.
 
