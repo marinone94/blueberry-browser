@@ -7,6 +7,7 @@ import { IPCRegistry } from "./core/ipc";
 import { ActivityIPCHandler } from "./features/activity";
 import { TabIPCHandler } from "./features/tabs";
 import { ContentIPCHandler } from "./features/content";
+import { HistoryIPCHandler } from "./features/history";
 
 let mainWindow: Window | null = null;
 let eventManager: EventManager | null = null;
@@ -29,6 +30,7 @@ const createWindow = async (): Promise<Window> => {
   ipcRegistry.registerHandler(new ActivityIPCHandler(window));
   ipcRegistry.registerHandler(new TabIPCHandler(window));
   ipcRegistry.registerHandler(new ContentIPCHandler(window));
+  ipcRegistry.registerHandler(new HistoryIPCHandler(window));
   
   console.log('[Main] IPC systems initialized:', {
     legacyEventManager: !!eventManager,
