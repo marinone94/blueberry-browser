@@ -5,7 +5,7 @@ import { SideBar } from "./SideBar";
 import { UserAccountManager, type TabSwitchOptions } from "./UserAccountManager";
 import { UserDataManager, type UserTabState } from "./UserDataManager";
 import { ActivityCollector } from "./features/activity";
-import { ContentAnalyzer } from "./ContentAnalyzer";
+import { ContentAnalyzer } from "./features/content";
 import { CategoryManager } from "./CategoryManager";
 import { VectorSearchManager } from "./VectorSearchManager";
 import { ProactiveInsightsManager } from "./ProactiveInsightsManager";

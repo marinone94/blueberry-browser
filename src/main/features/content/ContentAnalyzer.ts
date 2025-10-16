@@ -4,10 +4,10 @@ import { join } from 'path';
 import { app } from 'electron';
 import { streamText } from 'ai';
 import { openai } from '@ai-sdk/openai';
-import type { UserDataManager } from './UserDataManager';
-import type { CategoryManager } from './CategoryManager';
-import type { VectorSearchManager } from './VectorSearchManager';
-import type { Tab } from './features/tabs';
+import type { UserDataManager } from '../../UserDataManager';
+import type { CategoryManager } from '../../CategoryManager';
+import type { VectorSearchManager } from '../../VectorSearchManager';
+import type { Tab } from '../tabs';
 
 // ============================================================================
 // INTERFACES
@@ -813,3 +813,4 @@ Try again:`;
     console.log('ContentAnalyzer: Destroyed');
   }
 }
+
