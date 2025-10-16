@@ -42,9 +42,13 @@ Blueberry Browser implements a sophisticated multi-window Electron architecture 
 ┌─────────────────────────────────────────────────────────────┐
 │                    Main Process                             │
 │  ┌─────────────┐  ┌──────────────┐  ┌─────────────────────┐ │
-│  │   Window    │  │ EventManager │  │      LLMClient      │ │
+│  │   Window    │  │ IPCRegistry  │  │   LLMClient         │ │
 │  │  Manager    │  │   (IPC Hub)  │  │   (AI Features)     │ │
 │  └─────────────┘  └──────────────┘  └─────────────────────┘ │
+│         │                 │                                   │
+│         │   Feature-based IPC Handlers:                      │
+│         │   TabIPCHandler, ChatIPCHandler,                   │
+│         │   UserIPCHandler, ActivityIPCHandler, etc.         │
 └─────────────────────────────────────────────────────────────┘
                             │
            ┌────────────────┼────────────────┐
@@ -64,29 +68,27 @@ The main process (`src/main/`) orchestrates the entire application:
 **Core Infrastructure:**
 - **`index.ts`**: Application entry point, handles lifecycle events, initializes IPC systems
 - **`Window.ts`**: Manages BaseWindow with multiple WebContentsViews and user account integration
-- **`EventManager.ts`**: Legacy IPC hub (being phased out, see refactoring below)
-- **`core/ipc/`**: New modular IPC infrastructure (BaseIPCHandler, IPCRegistry)
+- **`core/ipc/`**: Modular IPC infrastructure (BaseIPCHandler, IPCRegistry)
 
-**Feature Modules (New Architecture):**
+**Feature Modules:**
 - **`features/activity/`**: Activity tracking and collection
-- **`features/`**: Additional features being migrated (see [REFACTORING_PHASE1.md](./REFACTORING_PHASE1.md))
+- **`features/ai/`**: AI chat and LLM integration
+- **`features/content/`**: Content analysis and extraction
+- **`features/history/`**: Browsing history management
+- **`features/insights/`**: Proactive insights and pattern detection
+- **`features/search/`**: Vector search and embeddings
+- **`features/tabs/`**: Tab management
+- **`features/users/`**: User account management
 
-**Legacy Files (To Be Migrated):**
-- **`Tab.ts`**: Individual tab management with user-specific session partitioning
-- **`TopBar.ts`** & **`SideBar.ts`**: UI component managers
-- **`LLMClient.ts`**: AI integration with user-specific chat history management
+**UI Management:**
+- **`ui/TopBar.ts`**: Browser navigation UI container
+- **`ui/SideBar.ts`**: AI chat interface container
+- **`ui/UIIPCHandler.ts`**: UI-related IPC handling
+
+**Shared Infrastructure:**
 - **`Menu.ts`**: Application menu and keyboard shortcuts
-- **`UserAccountManager.ts`**: Core user account management with session isolation
-- **`UserDataManager.ts`**: User-specific data persistence and file system operations
-- **`ActivityCollector.ts`**: Buffered collection (migrated to `features/activity/`)
-- **`ActivityTypes.ts`**: Activity type definitions (migrated to `shared/types/`)
-
-> **⚠️ Architecture Refactoring in Progress**
-> 
-> We are migrating from a monolithic EventManager pattern to a feature-based architecture.
-> Phase 1 is complete with the activity feature as proof of concept. Both systems run
-> side-by-side for backward compatibility. See [REFACTORING_PHASE1.md](./REFACTORING_PHASE1.md)
-> for details.
+- **`shared/types/`**: Shared type definitions
+- **`shared/utils/`**: Common utilities
 
 #### Renderer Processes
 The application runs three types of renderer processes:
@@ -109,24 +111,28 @@ Two preload scripts (`src/preload/`) provide secure IPC bridges:
 
 1. **Main Process Initialization** (`index.ts`):
    ```typescript
-   app.whenReady() → createWindow() → new Window()
+   app.whenReady() → createWindow() → Window.create()
    ```
 
 2. **Window Setup** (`Window.ts`):
    ```typescript
-   new BaseWindow() → new UserDataManager() → new UserAccountManager() → 
+   new BaseWindow() → Initialize Storage classes (ChatStorage, HistoryStorage, etc.) →
+   new UserAccountManager() → Initialize feature managers →
    new TopBar() → new SideBar() → createTab()
    ```
 
 3. **Component Loading**:
    - TopBar loads React app via WebContentsView
-   - Sidebar loads React app with AI client
+   - Sidebar loads React app with AI client (LLMClient)
    - First tab loads with default URL (Google)
 
-4. **IPC Registration** (`EventManager.ts`):
-   - Registers all IPC handlers for tab management
-   - Sets up AI chat message handling
-   - Configures page content extraction
+4. **IPC Registration** (`index.ts`):
+   - IPCRegistry instantiated
+   - Feature-specific IPC handlers registered:
+     - ActivityIPCHandler, TabIPCHandler, ContentIPCHandler
+     - HistoryIPCHandler, ChatIPCHandler, InsightsIPCHandler
+     - UserIPCHandler, UIIPCHandler
+   - Handlers respond to renderer requests via invoke/handle pattern
 
 ### User Interaction Flow
 
@@ -138,7 +144,7 @@ TopBar React → topBarAPI.createTab()
     ↓
 Preload Script → ipcRenderer.invoke("create-tab")
     ↓
-EventManager → mainWindow.createTab()
+TabIPCHandler.registerHandlers() → mainWindow.createTab()
     ↓
 Window → new Tab() → BaseWindow.addChildView()
     ↓
@@ -151,9 +157,9 @@ User sends message (Sidebar)
     ↓
 Chat Component → sidebarAPI.sendChatMessage()
     ↓
-Preload Script → ipcRenderer.invoke("sidebar-chat-message")
+Preload Script → ipcRenderer.invoke("ai:send-message")
     ↓
-EventManager → sidebar.client.sendChatMessage()
+ChatIPCHandler.registerHandlers() → LLMClient.sendChatMessage()
     ↓
 LLMClient → captures screenshot → gets page content → sends to AI
     ↓
@@ -175,8 +181,8 @@ The activity tracking system implements comprehensive user behavior monitoring t
 ┌─────────────────────────────────────────────────────────────┐
 │                    Main Process                             │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────┐  │
-│  │ActivityCollector│  │  ActivityTypes  │  │UserDataMgr  │  │
-│  │   (Buffering)   │  │ (Type Defs)     │  │(Persistence)│  │
+│  │ActivityCollector│  │  ActivityTypes  │  │ActivityStor │  │
+│  │   (Buffering)   │  │ (Type Defs)     │  │ (Persistence)│  │
 │  └─────────────────┘  └─────────────────┘  └─────────────┘  │
 └─────────────────────────────────────────────────────────────┘
                             │
@@ -196,7 +202,7 @@ The activity tracking system implements comprehensive user behavior monitoring t
 2. **Data Structuring**: Raw events converted to typed ActivityData structures
 3. **Buffered Collection**: ActivityCollector buffers activities in memory
 4. **Periodic Flushing**: Buffer automatically flushed every 30 seconds or when full
-5. **Persistent Storage**: UserDataManager saves to daily JSON files per user
+5. **Persistent Storage**: Storage layer saves to daily JSON files per user
 
 #### Activity Categories
 The system tracks 13 comprehensive activity types:
@@ -210,37 +216,6 @@ The system tracks 13 comprehensive activity types:
 - **Throttled Events**: Mouse movements (100ms), scrolls (500ms), keyboard (2s debounce)
 - **Daily File Rotation**: Separate JSON files per day for efficient access
 - **Session Grouping**: Activities grouped by session ID for analysis
-
-### Integration Points
-
-#### Tab-Level Integration
-```typescript
-// Window.ts - Activity collector per tab
-createTab(url) → {
-  const activityCollector = new ActivityCollector(userDataManager, currentUser.id)
-  tab.setActivityCallback((activity) => activityCollector.collectActivity(activity))
-}
-```
-
-#### In-Page Monitoring
-```typescript
-// Tab.ts - Inject monitoring scripts
-webContents.on('did-finish-load', () => {
-  injectActivityScript() // Monitors clicks, scrolls, keyboard
-})
-```
-
-#### Chat System Integration
-```typescript
-// LLMClient.ts - Track AI interactions
-sendChatMessage(request) → {
-  activityCollector.collectActivity('chat_interaction', {
-    userMessage: request.message,
-    contextUrl: activeTab?.url,
-    conversationLength: messages.length
-  })
-}
-```
 
 ### Data Storage Architecture
 
@@ -294,8 +269,8 @@ The chat history system implements a session-based architecture for organizing A
 ┌─────────────────────────────────────────────────────────────┐
 │                    Main Process                             │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────┐  │
-│  │   LLMClient     │  │UserDataManager  │  │EventManager │  │
-│  │  (Message       │  │  (Persistence)  │  │  (IPC Hub)  │  │
+│  │   LLMClient     │  │  ChatStorage    │  │ChatIPCHdlr  │  │
+│  │  (Message       │  │  (Persistence)  │  │  (IPC)      │  │
 │  │   Handling)     │  │                 │  │             │  │
 │  └─────────────────┘  └─────────────────┘  └─────────────┘  │
 └─────────────────────────────────────────────────────────────┘
@@ -351,92 +326,6 @@ users/user-data/{userId}/chat-history.json
 }
 ```
 
-### Message Flow Architecture
-
-#### Message Creation and Persistence
-```
-User sends message (Sidebar)
-    ↓
-LLMClient.sendChatMessage()
-    ↓
-1. Capture context (URL, screenshot, page text)
-2. Create CoreMessage with multimodal content
-3. Add to in-memory messages array
-4. Save to disk via UserDataManager.addChatMessage()
-    ↓
-UserDataManager processes:
-    - Create ChatMessage with ID and timestamp
-    - Append to messages array
-    - Update session metadata
-    - Update response time metrics
-    - Write to disk (atomic operation)
-    ↓
-Stream AI response
-    ↓
-Save assistant message with response time
-    ↓
-Update UI with complete conversation
-```
-
-#### Session Switching Architecture
-```
-User selects session (ChatHistory UI)
-    ↓
-ChatHistoryContext.switchToSession()
-    ↓
-IPC call to main process
-    ↓
-UserDataManager.setCurrentSessionId()
-    - Update currentSessionId in history
-    - Update session.lastActiveAt
-    - Persist to disk
-    ↓
-LLMClient.loadCurrentUserMessages()
-    - Load session messages from UserDataManager
-    - Convert to CoreMessage format
-    - Send to renderer
-    ↓
-UI updates with session messages
-```
-
-### Integration Points
-
-#### User Account Integration
-- Complete chat history isolation per user
-- Automatic loading on user switch
-- Guest user history cleared on restart
-- Session IDs scoped to user accounts
-
-#### Activity Tracking Integration
-- Chat interactions recorded as activity data
-- Response times tracked for analytics
-- Context URLs linked to browsing history
-- Message patterns available for profiling
-
-#### LLMClient Integration
-- Automatic message persistence on send
-- Session metadata updated in real-time
-- Context preservation across sessions
-- In-memory message array synced with disk
-
-### Performance Characteristics
-
-#### Read Operations
-- **Load Sessions**: O(1) file read + O(n) session sort
-- **Load Messages**: O(1) file read + O(m) filter by sessionId
-- **Switch Session**: O(1) file write + message load
-
-#### Write Operations
-- **Add Message**: O(1) append + O(1) metadata update + O(1) file write
-- **Create Session**: O(1) append + O(1) file write
-- **Clear History**: O(1) file write (overwrite with empty)
-
-#### Optimizations
-- Lazy loading: Only current session messages in memory
-- Filtered display: Hide empty sessions in UI
-- Sorted sessions: Pre-sorted by lastActiveAt
-- Minimal IPC: Batch operations where possible
-
 ### Security Model
 
 #### Data Protection
@@ -469,39 +358,14 @@ Blueberry Browser provides complete user isolation through a sophisticated accou
   - Session partition isolation
   - Maximum 10 users limit
 
-#### UserDataManager
+#### UserStorage
 - **Purpose**: File system operations and data persistence
 - **Features**:
-  - User-specific chat history
-  - Tab state persistence
-  - User preferences (dummy interfaces for now)
-  - Browsing history (dummy interfaces for now)
-  - Behavioral profiles (dummy interfaces for now)
+  - User-specific data directories
+  - Account metadata management
+  - Data isolation and cleanup
 
-### User Account Flow
-
-#### User Switching with Tab Management
-```
-User clicks account switcher → UI calls switchUser(userId, options)
-    ↓
-UserAccountManager.switchUser():
-    - Save current user's chat history if needed
-    - Set new currentUserId
-    - Handle tab switching based on options
-    ↓
-Window.switchUser():
-    - If keepCurrentTabs: reload all tabs with new session partition
-    - If not: close current tabs, load user's saved tabs
-    ↓
-LLMClient.handleUserSwitch():
-    - Load new user's chat history
-    - Update UI with user-specific messages
-    ↓
-EventManager.broadcastUserChange():
-    - Notify all renderer processes of user change
-```
-
-#### Session Partitioning
+### Session Partitioning
 Each user gets a unique Electron session partition:
 ```typescript
 const sessionPartition = `persist:user-${userId}`;
@@ -514,7 +378,7 @@ This isolates:
 - Service Workers
 - Network requests and responses
 
-#### Data Storage Structure
+### Data Storage Structure
 ```
 userData/
 ├── users/
@@ -543,11 +407,6 @@ userData/
 - **Incognito-like**: No persistence of browsing data, cookies, or chat history
 - **Always Available**: Guest user is always present for immediate browsing
 - **Tab Management**: Guest user tabs are never saved between sessions
-
-### User Persistence
-- **Startup Behavior**: If a non-guest user was active last time, they become the current user
-- **Guest Availability**: Guest user is always created fresh and available for switching
-- **Tab Restoration**: Users can choose to keep current tabs or load their saved tabs when switching
 
 ---
 
@@ -614,7 +473,7 @@ All IPC communication uses the secure `invoke/handle` pattern with proper parame
 
 ### Memory Management
 - **Tab Isolation**: Each tab runs in its own process
-- **Automatic Cleanup**: EventManager.cleanup() removes all listeners
+- **Automatic Cleanup**: Proper listener cleanup on window close
 - **View Management**: WebContentsViews properly added/removed from BaseWindow
 
 ### Process Optimization
@@ -644,9 +503,11 @@ pnpm typecheck    # Validate TypeScript across all processes
 - **IPC Communication**: Log messages in both main and renderer sides
 
 ### Adding New Features
-1. **IPC Handlers**: Add to EventManager.ts
-2. **Preload APIs**: Extend preload scripts with proper TypeScript types
-3. **UI Components**: Add to respective renderer directories
-4. **Main Logic**: Implement in appropriate main process classes
+1. **Create Feature Module**: Add to `src/main/features/`
+2. **IPC Handlers**: Extend BaseIPCHandler for feature
+3. **Preload APIs**: Extend preload scripts with proper TypeScript types
+4. **UI Components**: Add to respective renderer directories
+5. **Register Handler**: Add to IPCRegistry
 
 This architecture provides a solid foundation for building advanced browser features while maintaining security, performance, and maintainability.
+

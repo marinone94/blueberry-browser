@@ -25,7 +25,7 @@
 ### 1. Data Flow
 
 ```
-[Raw Activity Logs (7 days)] 
+[Raw Activity Logs (30 days)] 
     ↓
 [Content Analysis Data] (categories, descriptions, screenshots)
     ↓
@@ -150,7 +150,7 @@ score = frequency × 0.3 + recency × 0.3 + impact × 0.4
 ```
 ProactiveInsightsManager (Main Process)
     ↓ IPC
-EventManager (IPC Handlers)
+InsightsIPCHandler (IPC Handlers)
     ↓ IPC
 Sidebar Preload (API Bridge)
     ↓
@@ -163,7 +163,7 @@ Insights Component (UI)
 
 **Backend**:
 - `src/main/ProactiveInsightsManager.ts` - Core pattern detection logic (1200 lines)
-- `src/main/EventManager.ts` - IPC handlers for insights
+- `src/main/InsightsIPCHandler.ts` - IPC handlers for insights
 - `src/main/Window.ts` - Manager initialization
 
 **Preload**:
@@ -314,18 +314,15 @@ The feature leverages existing data:
 - "LLM-powered semantic understanding, not just keyword matching"
 - "Actionable insights, not just analytics"
 
-## Conclusion
-
-This feature demonstrates:
-- ✅ Advanced AI/LLM skills (multi-model strategy, prompt engineering, cost optimization)
-- ✅ System thinking (data flow, architecture, scaling)
-- ✅ Product strategy (proactive > reactive)
-- ✅ Full-stack capability (backend algorithms, IPC, React UI)
-- ✅ Execution speed (implemented in <12h)
-
 **This is the foundation for a truly intelligent browser.**
+
 
 ---
 
-*Built in <12 hours. Ready to make Blueberry superior to Strawberry.* 🫐
+## Related Features
 
+- [Activity Tracking](./activity-tracking.md) - Provides behavior data for pattern detection
+- [Browsing History](./browsing-history.md) - Analyzed for browsing patterns  
+- [Content Analysis](./content-analysis.md) - Provides content understanding for insights
+- [Vector Search](./vector-search.md) - Powers semantic pattern matching
+- [Chat History](./chat-history.md) - Analyzed for conversation patterns

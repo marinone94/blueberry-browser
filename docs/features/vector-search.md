@@ -288,7 +288,7 @@ Chat embeddings are automatically cleaned up when:
 
 2. **Clear All History**:
    ```typescript
-   EventManager: clear-chat-history handler
+   ChatIPCHandler / HistoryIPCHandler: clear-chat-history handler
      ↓
    Get all session IDs
      ↓
@@ -416,7 +416,7 @@ for (const result of results) {
 searchBrowsingContent: (query: string, options?: SearchOptions) => 
   ipcRenderer.invoke('vector:search-browsing', query, options),
 
-// In EventManager.ts
+// In ChatIPCHandler / HistoryIPCHandler.ts
 ipcMain.handle('vector:search-browsing', async (event, query, options) => {
   const userId = this.window.currentUserId;
   return await this.window._vectorSearchManager.searchBrowsingContent(
@@ -543,3 +543,13 @@ See `scripts/README.md` for detailed usage.
 - [Transformers.js](https://huggingface.co/docs/transformers.js)
 - [all-MiniLM-L6-v2 Model](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2)
 
+
+
+---
+
+## Related Features
+
+- [Chat History](./chat-history.md) - Uses vector search for semantic chat search
+- [Browsing History](./browsing-history.md) - Uses vector search for semantic page search  
+- [Content Analysis](./content-analysis.md) - Content is indexed for vector search
+- [Proactive Insights](./proactive-insights.md) - Uses vector search for pattern detection
