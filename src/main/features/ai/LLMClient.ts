@@ -4,9 +4,9 @@ import { openai } from "@ai-sdk/openai";
 import { anthropic } from "@ai-sdk/anthropic";
 import * as dotenv from "dotenv";
 import { join } from "path";
-import type { Window } from "./Window";
-import type { UserAccountManager } from "./UserAccountManager";
-import type { StreamingMetrics } from "./features/ai/storage";
+import type { Window } from "../../Window";
+import type { UserAccountManager } from "../../UserAccountManager";
+import type { StreamingMetrics } from "./storage";
 
 // Load environment variables from .env file
 dotenv.config({ path: join(__dirname, "../../.env") });

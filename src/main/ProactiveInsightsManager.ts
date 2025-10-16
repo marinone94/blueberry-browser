@@ -6,7 +6,7 @@ import { app } from 'electron';
 import type { InsightsStorage } from './features/insights/storage';
 import type { ActivityStorage } from './features/activity/storage';
 import type { ContentStorage } from './features/content/storage';
-import type { VectorSearchManager } from './VectorSearchManager';
+import type { VectorSearchManager } from './features/search/VectorSearchManager';
 
 // ============================================================================
 // INTERFACES

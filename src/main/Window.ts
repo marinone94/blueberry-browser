@@ -12,8 +12,8 @@ import { HistoryStorage } from "./features/history/storage";
 import { InsightsStorage } from "./features/insights/storage";
 import { ChatStorage } from "./features/ai/storage";
 import { UserStorage } from "./features/users/storage";
-import { CategoryManager } from "./CategoryManager";
-import { VectorSearchManager } from "./VectorSearchManager";
+import { CategoryManager } from "./features/content/CategoryManager";
+import { VectorSearchManager } from "./features/search/VectorSearchManager";
 import { ProactiveInsightsManager } from "./ProactiveInsightsManager";
 
 export class Window {

@@ -6,8 +6,8 @@ import { streamText } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import type { ContentStorage } from './storage';
 import type { HistoryStorage } from '../history/storage';
-import type { CategoryManager } from '../../CategoryManager';
-import type { VectorSearchManager } from '../../VectorSearchManager';
+import type { CategoryManager } from './CategoryManager';
+import type { VectorSearchManager } from '../search/VectorSearchManager';
 import type { Tab } from '../tabs';
 
 // ============================================================================
