@@ -79,7 +79,7 @@ const getActionLabel = (actionType: string, insightType?: string) => {
   
   switch (actionType) {
     case 'open_urls':
-      return 'Open Workflow'
+      return 'Resume'
     case 'resume_research':
       return 'Continue'
     case 'remind':
@@ -127,12 +127,16 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
 
   // Separate insights by status
   const allActiveInsights = insights.filter(i => i.status === 'pending' || i.status === 'in_progress')
-  const completedInsights = insights.filter(i => i.status === 'completed')
+  const allCompletedInsights = insights.filter(i => i.status === 'completed')
   
-  // Apply filtering
+  // Apply filtering to both active and completed insights
   let activeInsights = filterType !== 'all' 
     ? allActiveInsights.filter(i => i.type === filterType)
     : allActiveInsights
+  
+  let completedInsights = filterType !== 'all'
+    ? allCompletedInsights.filter(i => i.type === filterType)
+    : allCompletedInsights
   
   // Apply sorting
   activeInsights = [...activeInsights].sort((a, b) => {
@@ -176,8 +180,8 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
   }, [refreshInsights])
 
   const handleExecuteAction = async (insightId: string, insight: any) => {
-    // For abandoned tasks, show the tab dropdown instead of executing directly
-    if (insight.type === 'abandoned' && insight.actionType === 'resume_research') {
+    // For abandoned tasks and research summaries, show the tab dropdown instead of executing directly
+    if ((insight.type === 'abandoned' || insight.type === 'research') && insight.actionType === 'resume_research') {
       await handleToggleTabDropdown(insightId)
       return
     }
@@ -258,12 +262,18 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
     setCompletingInsights(prev => new Set(prev).add(insightId))
     try {
       const result = await markCompleted(insightId)
+      console.log('[Insights] Mark completed result:', result)
       if (result.success) {
-        console.log('Insight marked as completed:', result.message)
+        // Refresh insights to move it to history
+        await refreshInsights()
+        console.log('[Insights] Insights refreshed')
       } else {
-        console.error('Failed to mark as completed:', result.error)
+        console.error('[Insights] Failed to mark as completed:', result.error)
         alert(`Failed: ${result.error}`)
       }
+    } catch (error) {
+      console.error('[Insights] Exception while marking completed:', error)
+      alert(`Error: ${error}`)
     } finally {
       setCompletingInsights(prev => {
         const newSet = new Set(prev)
@@ -384,7 +394,14 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
             {filterType !== 'all' && allActiveInsights.length !== activeInsights.length && (
               <span> (of {allActiveInsights.length})</span>
             )}
-            {completedInsights.length > 0 && `, ${completedInsights.length} completed`}
+            {completedInsights.length > 0 && (
+              <>
+                , {completedInsights.length} completed
+                {filterType !== 'all' && allCompletedInsights.length !== completedInsights.length && (
+                  <span> (of {allCompletedInsights.length})</span>
+                )}
+              </>
+            )}
           </p>
         </div>
         <Button
@@ -616,7 +633,7 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
                         ) : (
                           <>
                             <span>{getActionLabel(insight.actionType, insight.type)}</span>
-                            {insight.type === 'abandoned' && insight.actionType === 'resume_research' ? (
+                            {((insight.type === 'abandoned' || insight.type === 'research') && insight.actionType === 'resume_research') ? (
                               expandedInsightId === insight.id ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
                             ) : (
                               <ArrowRight className="w-3 h-3" />
@@ -624,8 +641,8 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
                           </>
                         )}
                       </Button>
-                      {/* Mark Complete button for in_progress abandoned tasks */}
-                      {insight.status === 'in_progress' && insight.type === 'abandoned' && (
+                      {/* Mark Complete button for abandoned tasks */}
+                      {insight.type === 'abandoned' && (
                         <Button
                           onClick={() => handleMarkCompleted(insight.id)}
                           disabled={completingInsights.has(insight.id)}
@@ -642,6 +659,28 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
                             <>
                               <Check className="w-3 h-3" />
                               <span>Mark Complete</span>
+                            </>
+                          )}
+                        </Button>
+                      )}
+                      {/* Archive button for research summaries */}
+                      {insight.type === 'research' && (
+                        <Button
+                          onClick={() => handleMarkCompleted(insight.id)}
+                          disabled={completingInsights.has(insight.id)}
+                          size="sm"
+                          variant="outline"
+                          className="flex items-center gap-2"
+                        >
+                          {completingInsights.has(insight.id) ? (
+                            <>
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              <span>Archiving...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Package className="w-3 h-3" />
+                              <span>Archive</span>
                             </>
                           )}
                         </Button>
@@ -668,7 +707,7 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
                           )}
                         </Button>
                       )}
-                      {/* Discard button for habit insights */}
+                      {/* Archive button for habit insights */}
                       {insight.type === 'habit' && (
                         <Button
                           onClick={() => handleMarkCompleted(insight.id)}
@@ -680,12 +719,12 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
                           {completingInsights.has(insight.id) ? (
                             <>
                               <Loader2 className="w-3 h-3 animate-spin" />
-                              <span>Discarding...</span>
+                              <span>Archiving...</span>
                             </>
                           ) : (
                             <>
-                              <X className="w-3 h-3" />
-                              <span>Discard</span>
+                              <Package className="w-3 h-3" />
+                              <span>Archive</span>
                             </>
                           )}
                         </Button>
@@ -695,8 +734,8 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
                       </span>
                     </div>
 
-                    {/* Tab Dropdown for abandoned tasks */}
-                    {insight.type === 'abandoned' && expandedInsightId === insight.id && (
+                    {/* Tab Dropdown for abandoned tasks and research summaries */}
+                    {(insight.type === 'abandoned' || insight.type === 'research') && expandedInsightId === insight.id && (
                       <div className="mt-3 pt-3 border-t border-border/50">
                         {loadingTabs.has(insight.id) ? (
                           <div className="flex items-center justify-center py-4">
@@ -809,10 +848,15 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
               </div>
             )}
 
-            {/* Empty state for active insights */}
+            {/* Empty state for active insights when filter is applied */}
             {activeInsights.length === 0 && allActiveInsights.length > 0 && filterType !== 'all' && (
               <div className="text-center py-8 mb-6">
-                <p className="text-sm text-muted-foreground mb-2">No {filterType} patterns found.</p>
+                <p className="text-sm text-muted-foreground mb-2">No active {getInsightTypeLabel(filterType).toLowerCase()} patterns found.</p>
+                {completedInsights.length > 0 && (
+                  <p className="text-xs text-muted-foreground mb-2">
+                    ({completedInsights.length} completed {getInsightTypeLabel(filterType).toLowerCase()} shown below)
+                  </p>
+                )}
                 <Button
                   onClick={() => setFilterType('all')}
                   variant="outline"
@@ -824,7 +868,7 @@ export const Insights: React.FC<InsightsProps> = ({ onClose }) => {
               </div>
             )}
             
-            {activeInsights.length === 0 && allActiveInsights.length === 0 && completedInsights.length > 0 && (
+            {activeInsights.length === 0 && allActiveInsights.length === 0 && allCompletedInsights.length > 0 && (
               <div className="text-center py-8 mb-6">
                 <p className="text-sm text-muted-foreground">No active insights. All insights have been completed.</p>
                 <Button

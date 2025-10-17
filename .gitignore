@@ -132,5 +132,6 @@ logs/
 *.key
 *.cert
 
-# Roadmap
+# Roadmap and demo
 docs/ROADMAP.md
+docs/DEMO.md

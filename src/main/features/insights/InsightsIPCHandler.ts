@@ -27,21 +27,29 @@ export class InsightsIPCHandler extends BaseIPCHandler {
     // INSIGHTS ANALYSIS
     // ========================================================================
 
-    // Analyze user behavior and generate insights
-    ipcMain.handle("analyze-behavior", async () => {
-      const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
-      if (!currentUser) return [];
-      
-      try {
-        console.log('[InsightsIPCHandler] Analyzing behavior for user:', currentUser.name);
-        const insights = await this.mainWindow.proactiveInsightsManager.analyzeUserBehavior(currentUser.id);
-        console.log('[InsightsIPCHandler] Generated insights:', insights.length);
-        return insights;
-      } catch (error) {
-        console.error('[InsightsIPCHandler] Failed to analyze behavior:', error);
-        return [];
-      }
-    });
+        // Analyze user behavior and generate insights
+        ipcMain.handle("analyze-behavior", async () => {
+          const currentUser = this.mainWindow.userAccountManager.getCurrentUser();
+          if (!currentUser) return [];
+          
+          try {
+            console.log('[InsightsIPCHandler] Analyzing behavior for user:', currentUser.name);
+            
+            // IMPORTANT: Flush the activity buffer before analyzing
+            // This ensures we analyze ALL activities, including recent ones still in memory
+            if (this.mainWindow.activityCollector) {
+              console.log('[InsightsIPCHandler] Flushing activity buffer before analysis...');
+              await this.mainWindow.activityCollector.flushBuffer();
+            }
+            
+            const insights = await this.mainWindow.proactiveInsightsManager.analyzeUserBehavior(currentUser.id);
+            console.log('[InsightsIPCHandler] Generated insights:', insights.length);
+            return insights;
+          } catch (error) {
+            console.error('[InsightsIPCHandler] Failed to analyze behavior:', error);
+            return [];
+          }
+        });
 
     // Get cached insights
     ipcMain.handle("get-insights", async () => {

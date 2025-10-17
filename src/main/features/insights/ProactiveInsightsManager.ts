@@ -440,19 +440,32 @@ export class ProactiveInsightsManager {
    * Mark an insight as completed (manually or automatically)
    */
   async markInsightAsCompleted(userId: string, insightId: string): Promise<void> {
+    console.log(`[ProactiveInsights] markInsightAsCompleted called for userId=${userId}, insightId=${insightId}`);
     const insights = await this.getInsights(userId);
+    console.log(`[ProactiveInsights] Retrieved ${insights.length} insights from cache/storage`);
     const insight = insights.find(i => i.id === insightId);
     
-    if (insight && insight.status !== 'completed') {
+    if (!insight) {
+      console.error(`[ProactiveInsights] Insight ${insightId} not found!`);
+      return;
+    }
+    
+    console.log(`[ProactiveInsights] Found insight, current status: ${insight.status}`);
+    
+    if (insight.status !== 'completed') {
       insight.status = 'completed';
       insight.completionProgress = 1.0;
       insight.actedUponAt = new Date(); // For legacy compatibility
+      
+      console.log(`[ProactiveInsights] Updated insight status to completed, saving...`);
       
       // Update cache and save
       this.insightsCache.set(userId, insights);
       await this.saveInsights(userId, insights);
       
-      console.log(`[ProactiveInsights] Marked insight ${insightId} as completed`);
+      console.log(`[ProactiveInsights] Marked insight ${insightId} as completed and saved to disk`);
+    } else {
+      console.log(`[ProactiveInsights] Insight ${insightId} was already completed, skipping`);
     }
   }
 
@@ -1861,8 +1874,8 @@ Output JSON:
     console.log(`[ProactiveInsights] Impact score: ${impactScore}`);
     console.log(`[ProactiveInsights] Base score for ${pattern.type}: ${baseScore}`);
     
-    // Give workflow patterns a 50% boost to prioritize them
-    const finalScore = pattern.type === 'sequential' ? Math.min(baseScore * 1.5, 1.0) : baseScore;
+    // Give workflow patterns a 100% boost to prioritize them
+    const finalScore = pattern.type === 'sequential' ? Math.min(baseScore * 2, 1.0) : baseScore;
     console.log(`[ProactiveInsights] Final score for ${pattern.type}: ${finalScore}`);
     return finalScore;
   }
@@ -1935,7 +1948,8 @@ Output JSON:
           patterns: [pattern],
           relevanceScore: pattern.score,
           createdAt: new Date(),
-          status: 'pending'
+          status: 'pending',
+          linkedSessionIds: pattern.sessions.map(s => s.sessionId)
         };
       } else if (pattern.type === 'abandoned') {
         // Additional validation: skip if intent is too generic or suspicious
@@ -2187,7 +2201,7 @@ Output JSON:
       const insights = JSON.parse(fileContent);
       
       // Convert date strings back to Date objects and migrate legacy format
-      return insights.map((i: any) => {
+      const loadedInsights = insights.map((i: any) => {
         // Migrate legacy actedUpon to new status system
         let status: 'pending' | 'in_progress' | 'completed' = i.status || 'pending';
         if (!i.status && i.actedUpon) {
@@ -2248,6 +2262,26 @@ Output JSON:
           completionProgress: i.completionProgress || 0
         };
       });
+      
+      // Deduplicate insights by ID - keep the one with the most progressed status
+      const statusPriority = { completed: 3, in_progress: 2, pending: 1 };
+      const deduplicatedMap = new Map<string, ProactiveInsight>();
+      
+      for (const insight of loadedInsights) {
+        const existing = deduplicatedMap.get(insight.id);
+        if (!existing || statusPriority[insight.status] > statusPriority[existing.status]) {
+          deduplicatedMap.set(insight.id, insight);
+        }
+      }
+      
+      const deduplicated = Array.from(deduplicatedMap.values());
+      
+      // Log if we found duplicates
+      if (deduplicated.length < loadedInsights.length) {
+        console.log(`[ProactiveInsights] Deduplicated ${loadedInsights.length - deduplicated.length} duplicate insights`);
+      }
+      
+      return deduplicated;
     } catch {
       // File doesn't exist yet
       return [];
@@ -2261,13 +2295,31 @@ Output JSON:
     const filePath = this.getInsightsFilePath(userId);
     
     try {
+      // Deduplicate before saving - keep the one with the most progressed status
+      const statusPriority = { completed: 3, in_progress: 2, pending: 1 };
+      const deduplicatedMap = new Map<string, ProactiveInsight>();
+      
+      for (const insight of insights) {
+        const existing = deduplicatedMap.get(insight.id);
+        if (!existing || statusPriority[insight.status] > statusPriority[existing.status]) {
+          deduplicatedMap.set(insight.id, insight);
+        }
+      }
+      
+      const deduplicated = Array.from(deduplicatedMap.values());
+      
+      // Log if we're removing duplicates
+      if (deduplicated.length < insights.length) {
+        console.log(`[ProactiveInsights] Removing ${insights.length - deduplicated.length} duplicate insights before saving`);
+      }
+      
       // Ensure directory exists
       await fs.mkdir(join(this.usersDir, 'user-data', userId), { recursive: true });
       
       // Save insights
-      await fs.writeFile(filePath, JSON.stringify(insights, null, 2));
+      await fs.writeFile(filePath, JSON.stringify(deduplicated, null, 2));
       
-      console.log(`[ProactiveInsights] Saved ${insights.length} insights for user ${userId}`);
+      console.log(`[ProactiveInsights] Saved ${deduplicated.length} insights for user ${userId}`);
     } catch (error) {
       console.error('[ProactiveInsights] Error saving insights:', error);
       throw error;

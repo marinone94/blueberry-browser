@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
-import { ArrowUp, Plus, Archive, Globe, Brain, Bell } from 'lucide-react'
+import { ArrowUp, Plus, ScrollText, Globe, Brain, Bell } from 'lucide-react'
 import { useChat } from '../contexts/ChatContext'
 import { useChatHistory } from '../contexts/ChatHistoryContext'
 import { cn } from '@common/lib/utils'
@@ -331,7 +331,7 @@ export const Chat: React.FC<ChatProps> = ({ onShowHistory, onShowInsights, onSho
                                 variant="ghost"
                                 size="sm"
                             >
-                                <Archive className="size-4" />
+                                <ScrollText className="size-4" />
                             </Button>
                         )}
                         <Button

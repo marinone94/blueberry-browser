@@ -112,13 +112,16 @@ export const InsightsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, [])
 
   const loadInsights = useCallback(async () => {
+    console.log('[InsightsContext] Loading insights...')
     setIsLoading(true)
     setError(null)
     try {
       const cachedInsights = await window.sidebarAPI.getInsights()
+      console.log('[InsightsContext] Loaded insights:', cachedInsights.length, 'insights')
+      console.log('[InsightsContext] Insight statuses:', cachedInsights.map(i => `${i.id}: ${i.status}`))
       setInsights(cachedInsights)
     } catch (err) {
-      console.error('Failed to load insights:', err)
+      console.error('[InsightsContext] Failed to load insights:', err)
       setError('Failed to load insights')
     } finally {
       setIsLoading(false)

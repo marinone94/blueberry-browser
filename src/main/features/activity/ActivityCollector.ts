@@ -139,7 +139,7 @@ export class ActivityCollector {
     }
   }
 
-  private async flushBuffer(): Promise<void> {
+  async flushBuffer(): Promise<void> {
     if (this.dataBuffer.length === 0) return;
 
     const activitiesToFlush = [...this.dataBuffer];

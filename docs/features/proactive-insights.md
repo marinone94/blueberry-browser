@@ -302,7 +302,7 @@ The feature leverages existing data:
 2. Click "Insights" in sidebar
 3. Click "Analyze Behavior"
 4. Show detected patterns:
-   - Workflow: "Morning news routine" → Click "Open Workflow"
+   - Workflow: "Morning news routine" → Click "Resume"
    - Research: "Researching X" → Show key insights
    - Abandoned: "Incomplete research on Y" → Click "Continue"
    - Habit: "You visit Z every morning"

@@ -76,6 +76,8 @@ USer prompts can be ambiguous, or incomplete.
 
 ### Document your code
 **ENSURE to document your code thoroughly, both in code and in relevant files under `docs/` directory, `README.md`, and `AGENTS.md`.**
+Do not add documentation files explaining what you have done (e.g. DOCUMENTATION_MIGRATION_STEPS.md)
+Add new documentation files only if a new feature is added, and place it under `docs/features/` directory.
 
 ### Use comments
 **ENSURE to use comments to explain the code.**
