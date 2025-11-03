@@ -182,7 +182,7 @@ The activity tracking system implements comprehensive user behavior monitoring t
 │                    Main Process                             │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────┐  │
 │  │ActivityCollector│  │  ActivityTypes  │  │ActivityStor │  │
-│  │   (Buffering)   │  │ (Type Defs)     │  │ (Persistence)│  │
+│  │   (Buffering)   │  │ (Type Defs)     │  │(Persistence)│  │
 │  └─────────────────┘  └─────────────────┘  └─────────────┘  │
 └─────────────────────────────────────────────────────────────┘
                             │
